@@ -53,6 +53,19 @@
   .field-suffix { font-size:11.5px; color:var(--muted); width:14px; }
   .field-input-wrap { display:flex; align-items:center; gap:4px; }
 
+  .acc-row { align-items:center; }
+  .field-label-wrap { display:flex; flex-direction:column; gap:1px; }
+  .field-current { font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+  .field-current.has-val { color:var(--teal); font-weight:600; }
+  .acc-input { width:88px; }
+  .acc-add-btn { width:32px; height:32px; border-radius:8px; border:none; background:var(--teal); color:#fff; font-size:18px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; flex-shrink:0; }
+  .acc-add-btn:hover { background:#1f4650; }
+  .acc-add-btn:active { transform:scale(0.94); }
+  .acc-flash { position:absolute; right:14px; top:-2px; font-size:11px; color:var(--teal); font-weight:600; opacity:0; transition:opacity 0.2s ease; pointer-events:none; }
+  .acc-flash.show { opacity:1; }
+  .auto-save-note { text-align:center; font-size:11.5px; color:var(--muted); margin-top:16px; display:flex; align-items:center; justify-content:center; gap:6px; }
+  .auto-save-note .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
+
   .tap-card { display:flex; align-items:center; justify-content:space-between; padding:16px; border-bottom:1px solid var(--line); cursor:pointer; }
   .tap-card:last-child { border-bottom:none; }
   .tap-card:hover { background:#FBF7EC; }
@@ -346,14 +359,34 @@
     const t = dayTotals(day, state.settings);
     const isToday = dateKey(d)===dateKey(new Date());
 
-    const revRows = state.settings.revenueSources.map(s=>`
-      <div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span>
-        <div class="field-input-wrap"><input class="field-input" type="number" inputmode="decimal" step="0.01" data-kind="revenue" data-key="${s.id}" value="${day.revenue[s.id]!=null?day.revenue[s.id]:''}" placeholder="0,00"><span class="field-suffix">€</span></div>
-      </div>`).join('');
-    const expRows = state.settings.expenseCategories.map(c=>`
-      <div class="field-row"><span class="field-label">${escapeHtml(c.name)}</span>
-        <div class="field-input-wrap"><input class="field-input" type="number" inputmode="decimal" step="0.01" data-kind="expense" data-key="${c.id}" value="${day.expenses[c.id]!=null?day.expenses[c.id]:''}" placeholder="0,00"><span class="field-suffix">€</span></div>
-      </div>`).join('');
+    const revRows = state.settings.revenueSources.map(s=>{
+      const cur = Number(day.revenue[s.id]||0);
+      return `
+      <div class="field-row acc-row" style="position:relative;">
+        <div class="field-label-wrap"><span class="field-label">${escapeHtml(s.name)}</span>
+          <span class="field-current ${cur>0?'has-val':''}">${cur>0?'déjà : '+fmtMoney(cur):'rien pour l’instant'}</span>
+        </div>
+        <div class="field-input-wrap">
+          <input class="field-input acc-input" type="number" inputmode="decimal" step="0.01" data-kind="revenue" data-key="${s.id}" placeholder="+ montant">
+          <button class="acc-add-btn" data-kind="revenue" data-key="${s.id}" aria-label="Ajouter">+</button>
+        </div>
+        <span class="acc-flash" data-flash-kind="revenue" data-flash-key="${s.id}"></span>
+      </div>`;
+    }).join('');
+    const expRows = state.settings.expenseCategories.map(c=>{
+      const cur = Number(day.expenses[c.id]||0);
+      return `
+      <div class="field-row acc-row" style="position:relative;">
+        <div class="field-label-wrap"><span class="field-label">${escapeHtml(c.name)}</span>
+          <span class="field-current ${cur>0?'has-val':''}">${cur>0?'déjà : '+fmtMoney(cur):'rien pour l’instant'}</span>
+        </div>
+        <div class="field-input-wrap">
+          <input class="field-input acc-input" type="number" inputmode="decimal" step="0.01" data-kind="expense" data-key="${c.id}" placeholder="+ montant">
+          <button class="acc-add-btn" data-kind="expense" data-key="${c.id}" aria-label="Ajouter">+</button>
+        </div>
+        <span class="acc-flash" data-flash-kind="expense" data-flash-key="${c.id}"></span>
+      </div>`;
+    }).join('');
     const attendChips = state.settings.employees.map(e=>{
       const present = day.attendance.some(a=>a.id===e.id);
       return `<div class="attend-chip ${present?'on':''}" data-emp="${e.id}"><span class="mark">${present?'✓':''}</span>${escapeHtml(e.name)}</div>`;
@@ -383,33 +416,74 @@
       <div class="card">${expRows}</div>
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>Présence équipe</div>
       <div class="card"><div class="attend-grid">${attendChips||'<span style="color:var(--muted);font-size:13px;padding:6px 0;">Ajoutez des employés dans Équipe</span>'}</div></div>
-      <button class="btn btn-primary" id="saveDayBtn">Enregistrer ce jour</button>
-      <div class="save-confirm" id="saveConfirm"></div>
+      <div class="auto-save-note"><span class="dot"></span>Chaque ajout est enregistré automatiquement</div>
     `;
   }
   function bindToday(){
     document.getElementById('prevDay').addEventListener('click',()=>{ state.selectedDate=new Date(state.selectedDate.getTime()-86400000); render(); });
     document.getElementById('nextDay').addEventListener('click',()=>{ state.selectedDate=new Date(state.selectedDate.getTime()+86400000); render(); });
     document.getElementById('datePick').addEventListener('change',e=>{ if(e.target.value){ const [y,m,dd]=e.target.value.split('-').map(Number); state.selectedDate=new Date(y,m-1,dd); render(); } });
-    document.querySelectorAll('input[data-kind]').forEach(inp=>{
-      inp.addEventListener('input',()=>{
-        const kind=inp.dataset.kind, key=inp.dataset.key;
-        const v = inp.value===''?undefined:Number(inp.value);
-        if(kind==='revenue'){ if(v===undefined) delete state._todayDay.revenue[key]; else state._todayDay.revenue[key]=v; }
-        else { if(v===undefined) delete state._todayDay.expenses[key]; else state._todayDay.expenses[key]=v; }
-        updateReceiptLive();
+
+    async function commitAdd(kind, key, inputEl){
+      const raw = inputEl.value;
+      const amount = Number(raw);
+      if(!raw || isNaN(amount) || amount===0){
+        inputEl.style.borderColor = 'var(--red)';
+        setTimeout(()=>{ inputEl.style.borderColor=''; }, 900);
+        return;
+      }
+      const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
+      const month = await getMonth(mk);
+      if(!month.days[dk]) month.days[dk] = emptyDay();
+      const day = month.days[dk];
+      const bucket = kind==='revenue' ? day.revenue : day.expenses;
+      bucket[key] = Number(bucket[key]||0) + amount;
+      await saveMonth(mk);
+      state._todayDay = JSON.parse(JSON.stringify(day));
+
+      inputEl.value = '';
+      const row = inputEl.closest('.acc-row');
+      const curLabel = row.querySelector('.field-current');
+      const newVal = bucket[key];
+      curLabel.textContent = newVal>0 ? 'déjà : '+fmtMoney(newVal) : 'rien pour l’instant';
+      curLabel.classList.toggle('has-val', newVal>0);
+      const flash = row.querySelector('.acc-flash');
+      flash.textContent = (amount>0?'+':'')+fmtMoney(amount).replace('−','-');
+      flash.classList.add('show');
+      setTimeout(()=>{ flash.classList.remove('show'); }, 1100);
+      updateReceiptLive();
+    }
+
+    document.querySelectorAll('.acc-add-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const row = btn.closest('.acc-row');
+        const input = row.querySelector('.acc-input');
+        commitAdd(btn.dataset.kind, btn.dataset.key, input);
+      });
+    });
+    document.querySelectorAll('.acc-input').forEach(inp=>{
+      inp.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){
+          e.preventDefault();
+          commitAdd(inp.dataset.kind, inp.dataset.key, inp);
+        }
       });
     });
     document.querySelectorAll('.attend-chip').forEach(chip=>{
-      chip.addEventListener('click',()=>{
+      chip.addEventListener('click', async ()=>{
         const empId=chip.dataset.emp; const emp=state.settings.employees.find(e=>e.id===empId);
-        const idx = state._todayDay.attendance.findIndex(a=>a.id===empId);
-        if(idx>=0) state._todayDay.attendance.splice(idx,1); else state._todayDay.attendance.push({id:emp.id,name:emp.name,rate:emp.rate});
+        const d=state.selectedDate, mk=monthKeyOf(d), dk=String(d.getDate());
+        const month = await getMonth(mk);
+        if(!month.days[dk]) month.days[dk] = emptyDay();
+        const day = month.days[dk];
+        const idx = day.attendance.findIndex(a=>a.id===empId);
+        if(idx>=0) day.attendance.splice(idx,1); else day.attendance.push({id:emp.id,name:emp.name,rate:emp.rate});
+        await saveMonth(mk);
+        state._todayDay = JSON.parse(JSON.stringify(day));
         chip.classList.toggle('on'); chip.querySelector('.mark').textContent = chip.classList.contains('on')?'✓':'';
         updateReceiptLive();
       });
     });
-    document.getElementById('saveDayBtn').addEventListener('click', saveCurrentDay);
   }
   function updateReceiptLive(){
     const t = dayTotals(state._todayDay, state.settings);
@@ -420,16 +494,6 @@
     const totalEl = document.querySelector('.receipt-total .val');
     totalEl.textContent = fmtMoneySigned(t.rev-t.exp);
     totalEl.className = 'val '+(t.rev-t.exp>=0?'pos':'neg');
-  }
-  async function saveCurrentDay(){
-    const d=state.selectedDate, mk=monthKeyOf(d), dk=String(d.getDate());
-    const month = await getMonth(mk);
-    const day = state._todayDay;
-    const isBlank = Object.keys(day.revenue).length===0 && Object.keys(day.expenses).length===0 && day.attendance.length===0;
-    if(isBlank) delete month.days[dk]; else month.days[dk]=day;
-    await saveMonth(mk);
-    const el=document.getElementById('saveConfirm'); el.textContent='✓ Jour enregistré';
-    setTimeout(()=>{ if(el) el.textContent=''; },2200);
   }
 
   /* ================= STOCK ================= */
