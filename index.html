@@ -72,6 +72,27 @@
   .auto-save-note { text-align:center; font-size:11.5px; color:var(--muted); margin-top:16px; display:flex; align-items:center; justify-content:center; gap:6px; }
   .auto-save-note .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
 
+  .cam-btn { width:34px; height:34px; border-radius:10px; border:1px solid var(--line); background:var(--paper); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--teal); margin-left:auto; }
+  .cam-btn:hover { background:var(--teal-dim); }
+  .section-title-row { display:flex; align-items:center; gap:7px; margin:22px 2px 9px; }
+  .section-title-row .section-title { margin:0; }
+
+  .pick-option { display:flex; align-items:center; justify-content:space-between; padding:14px; border-bottom:1px solid var(--line); cursor:pointer; font-size:14px; font-weight:500; }
+  .pick-option:last-child { border-bottom:none; }
+  .pick-option:hover { background:#FBF7EC; }
+  .pick-option .chev { color:var(--muted); }
+
+  .photo-thumb { width:100%; max-height:220px; object-fit:contain; border-radius:10px; border:1px solid var(--line); margin-bottom:10px; background:#F3EFE6; }
+  .photo-thumb-sm { width:34px; height:34px; border-radius:8px; object-fit:cover; border:1px solid var(--line); cursor:pointer; flex-shrink:0; }
+  .photo-remove-btn { position:absolute; top:8px; right:8px; background:rgba(36,31,26,0.7); color:#fff; border:none; border-radius:50%; width:26px; height:26px; cursor:pointer; font-size:14px; }
+  .photo-preview-wrap { position:relative; margin-bottom:10px; }
+
+  .receipt-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--line); }
+  .receipt-item:last-child { border-bottom:none; }
+  .receipt-item .ri-amount { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:13px; flex:1; }
+  .receipt-item .ri-tag { font-size:10.5px; color:var(--muted); background:var(--teal-dim); padding:2px 7px; border-radius:10px; }
+  .receipt-item .ri-del { color:var(--red); background:none; border:none; cursor:pointer; font-size:16px; padding:2px 6px; }
+
   .tap-card { display:flex; align-items:center; justify-content:space-between; padding:16px; border-bottom:1px solid var(--line); cursor:pointer; }
   .tap-card:last-child { border-bottom:none; }
   .tap-card:hover { background:#FBF7EC; }
@@ -205,15 +226,15 @@
     companyName: "Good'Asie",
     revenueSources: [{id:'r1',name:'Espèces'},{id:'r2',name:'Belle Vue'},{id:'r3',name:'Maison Rouge'},{id:'r4',name:'TOOGO'}],
     expenseCategories: [
-      {id:'c1',name:'Loyer',vatRate:0},
-      {id:'c2',name:'Eau et Électricité',vatRate:0.20},
-      {id:'c3',name:'Comptabilité',vatRate:0.20},
-      {id:'c4',name:'Frais de gestion',vatRate:0},
-      {id:'c5',name:'Frais de stand',vatRate:0.20},
-      {id:'c6',name:'Transport',vatRate:0},
-      {id:'c7',name:'Rénovation et Équipement',vatRate:0.20},
-      {id:'c8',name:'Achats',vatRate:0.055},
-      {id:'c9',name:'Autres dépenses',vatRate:0}
+      {id:'c1',name:'Loyer',vatRate:0,linksSupplier:false},
+      {id:'c2',name:'Eau et Électricité',vatRate:0.20,linksSupplier:false},
+      {id:'c3',name:'Comptabilité',vatRate:0.20,linksSupplier:false},
+      {id:'c4',name:'Frais de gestion',vatRate:0,linksSupplier:false},
+      {id:'c5',name:'Frais de stand',vatRate:0.20,linksSupplier:false},
+      {id:'c6',name:'Transport',vatRate:0,linksSupplier:false},
+      {id:'c7',name:'Rénovation et Équipement',vatRate:0.20,linksSupplier:false},
+      {id:'c8',name:'Achats',vatRate:0.055,linksSupplier:true},
+      {id:'c9',name:'Autres dépenses',vatRate:0,linksSupplier:false}
     ],
     employees: [{id:'e1',name:'李姐',rate:70},{id:'e2',name:'小孩儿',rate:90},{id:'e3',name:'郑姐',rate:70}],
     suppliers: [{id:'s1',name:'LX'},{id:'s2',name:'XH'},{id:'s3',name:'KD'},{id:'s4',name:'TANG'}],
@@ -236,6 +257,7 @@
     s.employees = s.employees || DEFAULT_SETTINGS.employees;
     s.suppliers = s.suppliers || DEFAULT_SETTINGS.suppliers;
     s.companyName = s.companyName || DEFAULT_SETTINGS.companyName;
+    s.expenseCategories.forEach(c=>{ if(c.linksSupplier===undefined) c.linksSupplier = false; });
     s.products = s.products || [];
     s.tax = s.tax || DEFAULT_SETTINGS.tax;
     state.settings = s;
@@ -251,12 +273,60 @@
   }
   async function saveMonth(mk){ await sSet('month:'+mk, state.monthCache[mk]); }
 
-  function emptyDay(){ return { revenue:{}, expenses:{}, attendance:[] }; }
+  function emptyDay(){ return { revenue:{}, expenses:{}, attendance:[], receipts:[] }; }
   function dayTotals(day, settings){
     let rev=0; (settings.revenueSources||[]).forEach(s=>rev+=Number(day.revenue[s.id]||0));
     let exp=0; (settings.expenseCategories||[]).forEach(c=>exp+=Number(day.expenses[c.id]||0));
     let sal=0; (day.attendance||[]).forEach(a=>sal+=Number(a.rate||0));
     return { rev, exp:exp+sal, sal, expNoSal:exp };
+  }
+
+  /* ---------------- photo capture + compression ---------------- */
+  function compressImage(file, maxWidth, quality){
+    maxWidth = maxWidth || 900; quality = quality || 0.55;
+    return new Promise((resolve, reject)=>{
+      if(!file){ resolve(null); return; }
+      const reader = new FileReader();
+      reader.onload = e=>{
+        const img = new Image();
+        img.onload = ()=>{
+          let w = img.width, h = img.height;
+          if(w > maxWidth){ h = Math.round(h*(maxWidth/w)); w = maxWidth; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img,0,0,w,h);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = ()=>reject(new Error('image load failed'));
+        img.src = e.target.result;
+      };
+      reader.onerror = ()=>reject(new Error('file read failed'));
+      reader.readAsDataURL(file);
+    });
+  }
+  function capturePhoto(){
+    return new Promise((resolve)=>{
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment';
+      inp.style.display = 'none';
+      inp.addEventListener('change', async ()=>{
+        const file = inp.files && inp.files[0];
+        document.body.removeChild(inp);
+        if(!file){ resolve(null); return; }
+        try{ resolve(await compressImage(file)); }
+        catch(e){ console.error(e); resolve(null); }
+      });
+      document.body.appendChild(inp);
+      inp.click();
+    });
+  }
+  function openPhotoLightbox(dataUrl){
+    const back = document.createElement('div');
+    back.className = 'backdrop';
+    back.style.alignItems = 'center';
+    back.innerHTML = `<img src="${dataUrl}" style="max-width:92%;max-height:85vh;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.4);">`;
+    back.addEventListener('click', ()=>document.body.removeChild(back));
+    document.body.appendChild(back);
   }
 
   async function getStock(supplierId, mk){
@@ -314,7 +384,8 @@
       gear: '<circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/>',
       in: '<path d="M12 4v12M6 10l6 6 6-6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
       out: '<path d="M12 20V8M6 14l6-6 6 6" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
-      list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>'
+      list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
+      cam: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/><circle cx="12" cy="14" r="3.3" stroke="currentColor" stroke-width="1.6" fill="none"/>'
     };
     return icons[name]||'';
   }
@@ -420,7 +491,10 @@
       </div>
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Revenus</div>
       <div class="card">${revRows}</div>
-      <div class="section-title"><span class="swatch" style="background:var(--red)"></span>Dépenses</div>
+      <div class="section-title-row">
+        <div class="section-title"><span class="swatch" style="background:var(--red)"></span>Dépenses</div>
+        <button class="cam-btn" id="camDepenseBtn" aria-label="Photographier un justificatif">${svgWrap('cam')}</button>
+      </div>
       <div class="card">${expRows}</div>
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>Présence équipe</div>
       <div class="card"><div class="attend-grid">${attendChips||'<span style="color:var(--muted);font-size:13px;padding:6px 0;">Ajoutez des employés dans Équipe</span>'}</div></div>
@@ -496,8 +570,9 @@
 
     document.querySelectorAll('.field-current.fixable').forEach(label=>{
       label.addEventListener('click', ()=>{
-        if(label.querySelector('.fix-edit-wrap')) return; // already editing
         const kind = label.dataset.kind, key = label.dataset.key;
+        if(kind==='expense'){ openExpenseDetailSheet(key); return; }
+        if(label.querySelector('.fix-edit-wrap')) return; // already editing
         const curVal = Number(label.dataset.cur||0);
         const originalHTML = label.innerHTML;
         label.classList.remove('fixable');
@@ -531,7 +606,160 @@
         input.addEventListener('click', e=>e.stopPropagation());
       });
     });
+
+    const camBtn = document.getElementById('camDepenseBtn');
+    if(camBtn) camBtn.addEventListener('click', startExpensePhotoFlow);
   }
+
+  /* ---------------- generic picker / confirm sheets (used by photo flow) ---------------- */
+  function showPickerSheet(title, options){
+    return new Promise((resolve)=>{
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+      back.innerHTML = `<div class="sheet" role="dialog" aria-label="${escapeHtml(title)}">
+        <div class="sheet-head"><h2>${escapeHtml(title)}</h2><button class="icon-btn" data-cancel>✕</button></div>
+        <div class="card">${options.map((o,i)=>`<div class="pick-option" data-idx="${i}">${escapeHtml(o.label)}<span class="chev">›</span></div>`).join('') || '<div style="padding:16px;color:var(--muted);font-size:13px;">Aucune option — ajoutez-en dans Réglages.</div>'}</div>
+      </div>`;
+      document.body.appendChild(back);
+      function cleanup(val){ document.body.removeChild(back); resolve(val); }
+      back.querySelectorAll('[data-idx]').forEach(el=>{
+        el.addEventListener('click', ()=>cleanup(options[Number(el.dataset.idx)].value));
+      });
+      back.querySelector('[data-cancel]').addEventListener('click', ()=>cleanup(null));
+      back.addEventListener('click', e=>{ if(e.target===back) cleanup(null); });
+    });
+  }
+  function showAmountConfirmSheet(photoDataUrl, categoryName, supplierName){
+    return new Promise((resolve)=>{
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+      back.innerHTML = `<div class="sheet" role="dialog" aria-label="Montant">
+        <div class="sheet-head"><h2>Montant</h2><button class="icon-btn" data-cancel>✕</button></div>
+        <div class="tax-note" style="padding:0 2px 8px;">${escapeHtml(categoryName)}${supplierName?' · '+escapeHtml(supplierName):''}</div>
+        ${photoDataUrl ? `<img src="${photoDataUrl}" class="photo-thumb">` : ''}
+        <div class="card"><div class="field-row">
+          <span class="field-label">Montant</span>
+          <div class="field-input-wrap"><input class="field-input" id="confirmAmountInput" type="number" step="0.01" inputmode="decimal" placeholder="0,00"><span class="field-suffix">€</span></div>
+        </div></div>
+        <button class="btn btn-primary" data-save>Enregistrer</button>
+      </div>`;
+      document.body.appendChild(back);
+      const input = back.querySelector('#confirmAmountInput');
+      setTimeout(()=>input.focus(), 150);
+      function cleanup(val){ document.body.removeChild(back); resolve(val); }
+      back.querySelector('[data-cancel]').addEventListener('click', ()=>cleanup(null));
+      back.querySelector('[data-save]').addEventListener('click', ()=>{
+        const v = Number(input.value);
+        if(!v || v<=0){ input.style.borderColor='var(--red)'; setTimeout(()=>{input.style.borderColor='';},900); return; }
+        cleanup(v);
+      });
+      input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); back.querySelector('[data-save]').click(); } });
+    });
+  }
+
+  async function startExpensePhotoFlow(){
+    const photo = await capturePhoto();
+    if(!photo) return;
+    const catOptions = state.settings.expenseCategories.map(c=>({label:c.name, value:c.id}));
+    const catId = await showPickerSheet('Quelle catégorie ?', catOptions);
+    if(!catId) return;
+    const cat = state.settings.expenseCategories.find(c=>c.id===catId);
+    let supplierId = null, supplierName = null;
+    if(cat.linksSupplier){
+      const supOptions = state.settings.suppliers.map(s=>({label:s.name, value:s.id}));
+      supplierId = await showPickerSheet('Quel fournisseur ?', supOptions);
+      if(supplierId) supplierName = state.settings.suppliers.find(s=>s.id===supplierId).name;
+    }
+    const amount = await showAmountConfirmSheet(photo, cat.name, supplierName);
+    if(!amount) return;
+
+    const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
+    const month = await getMonth(mk);
+    if(!month.days[dk]) month.days[dk] = emptyDay();
+    const day = month.days[dk];
+    if(!day.receipts) day.receipts = [];
+    day.expenses[catId] = Number(day.expenses[catId]||0) + amount;
+    day.receipts.push({ id: uid('rc'), amount, catId, supplierId, photo, ts: Date.now() });
+    await saveMonth(mk);
+    render();
+  }
+
+  function openExpenseDetailSheet(catId){
+    const d = state.selectedDate, dk = String(d.getDate());
+    const day = state._todayDay || emptyDay();
+    const receipts = (day.receipts||[]).filter(r=>r.catId===catId);
+    const cat = state.settings.expenseCategories.find(c=>c.id===catId);
+    const total = Number(day.expenses[catId]||0);
+
+    const back = document.createElement('div');
+    back.className = 'backdrop';
+    back.innerHTML = `<div class="sheet" role="dialog" aria-label="${escapeHtml(cat.name)}">
+      <div class="sheet-head"><h2>${escapeHtml(cat.name)}</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="receipt" style="margin-top:0;margin-bottom:16px;">
+        <div class="receipt-line receipt-total"><span>Total du jour</span><span class="val neg">${fmtMoney(total)}</span></div>
+      </div>
+      ${receipts.length ? `<div class="section-title" style="margin-top:0;">Justificatifs photographiés</div><div class="card">
+        ${receipts.map(r=>{
+          const sup = r.supplierId ? state.settings.suppliers.find(s=>s.id===r.supplierId) : null;
+          return `<div class="receipt-item">
+            ${r.photo?`<img src="${r.photo}" class="photo-thumb-sm" data-viewphoto="${r.id}">`:''}
+            <span class="ri-amount">${fmtMoney(r.amount)}</span>
+            ${sup?`<span class="ri-tag">${escapeHtml(sup.name)}</span>`:''}
+            <button class="ri-del" data-delreceipt="${r.id}">×</button>
+          </div>`;
+        }).join('')}
+      </div>` : `<div class="tax-note" style="padding:0 2px 10px;">Aucun justificatif photographié pour cette catégorie aujourd'hui.</div>`}
+      <div class="section-title">Corriger le total manuellement</div>
+      <div class="card"><div class="field-row">
+        <span class="field-label">Nouveau total du jour</span>
+        <div class="field-input-wrap"><input class="field-input" id="manualTotalInput" type="number" step="0.01" value="${total}"><span class="field-suffix">€</span></div>
+      </div></div>
+      <button class="btn btn-primary" data-savemanual>Mettre à jour</button>
+    </div>`;
+    document.body.appendChild(back);
+
+    function close(){ document.body.removeChild(back); }
+    back.querySelector('[data-close]').addEventListener('click', close);
+    back.addEventListener('click', e=>{ if(e.target===back) close(); });
+
+    back.querySelectorAll('[data-viewphoto]').forEach(img=>{
+      img.addEventListener('click', ()=>{
+        const r = receipts.find(x=>x.id===img.dataset.viewphoto);
+        if(r && r.photo) openPhotoLightbox(r.photo);
+      });
+    });
+    back.querySelectorAll('[data-delreceipt]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const rid = btn.dataset.delreceipt;
+        const mk = monthKeyOf(d);
+        const month = await getMonth(mk);
+        const dayObj = month.days[dk];
+        if(!dayObj) return;
+        const idx = (dayObj.receipts||[]).findIndex(x=>x.id===rid);
+        if(idx<0) return;
+        const removed = dayObj.receipts[idx];
+        dayObj.expenses[catId] = Math.max(0, Number(dayObj.expenses[catId]||0) - removed.amount);
+        dayObj.receipts.splice(idx,1);
+        await saveMonth(mk);
+        state._todayDay = JSON.parse(JSON.stringify(dayObj));
+        close();
+        render();
+      });
+    });
+    back.querySelector('[data-savemanual]').addEventListener('click', async ()=>{
+      const newVal = Number(back.querySelector('#manualTotalInput').value);
+      if(isNaN(newVal) || newVal<0) return;
+      const mk = monthKeyOf(d);
+      const month = await getMonth(mk);
+      if(!month.days[dk]) month.days[dk] = emptyDay();
+      month.days[dk].expenses[catId] = newVal;
+      await saveMonth(mk);
+      state._todayDay = JSON.parse(JSON.stringify(month.days[dk]));
+      close();
+      render();
+    });
+  }
+
   function updateReceiptLive(){
     const t = dayTotals(state._todayDay, state.settings);
     const lines = document.querySelectorAll('.receipt-line');
@@ -628,9 +856,16 @@
     let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">${escapeHtml(sup.name)} · ${dirLabel}</span></div>`;
 
     const productOptions = products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    const pendingPhoto = state._stockPendingPhoto;
     html += `
-      <div class="section-title"><span class="swatch" style="background:${dir==='entree'?'var(--teal)':'var(--red)'}"></span>Nouvelle ligne</div>
+      <div class="section-title"><span class="swatch" style="background:${dir==='entree'?'var(--teal)':'var(--red)'}"></span>Nouvelle ligne
+        <button class="cam-btn" id="camStockBtn" aria-label="Photographier un justificatif">${svgWrap('cam')}</button>
+      </div>
       <div class="card">
+        ${pendingPhoto ? `<div class="field-row"><div class="photo-preview-wrap" style="width:100%;margin:8px 0 0;">
+          <img src="${pendingPhoto}" class="photo-thumb" style="max-height:140px;">
+          <button class="photo-remove-btn" id="removePendingPhoto">×</button>
+        </div></div>` : ''}
         <div class="field-row"><span class="field-label">Date</span>
           <div class="date-label-wrap" style="flex:0 0 auto;position:relative;">
             <span id="logDateLabel" style="font-family:'IBM Plex Mono',monospace;font-size:13px;cursor:pointer;">${dateKey(d)}</span>
@@ -663,7 +898,10 @@
       moves.forEach((m,i)=>{
         const p = state.settings.products.find(pp=>pp.id===m.productId);
         html += `<div class="day-row" data-moveidx="${stockMonth[dir].indexOf(m)}">
-          <div class="day-left">${pad(m.day)} <span class="dow">${MONTHS[d.getMonth()].slice(0,3)}</span> — ${escapeHtml(p?p.name:'?')}</div>
+          <div class="day-left" style="display:flex;align-items:center;gap:8px;">
+            ${m.photo?`<img src="${m.photo}" class="photo-thumb-sm" data-viewphoto-move="${stockMonth[dir].indexOf(m)}">`:''}
+            <span>${pad(m.day)} <span class="dow">${MONTHS[d.getMonth()].slice(0,3)}</span> — ${escapeHtml(p?p.name:'?')}</span>
+          </div>
           <div class="day-nums"><span>${m.qty}</span><button class="move-remove" data-rm="${stockMonth[dir].indexOf(m)}">×</button></div>
         </div>`;
       });
@@ -680,6 +918,7 @@
           state.stockLogSupplier = el.dataset.sup;
           state.stockLogDirection = el.dataset.dir;
           state.stockView='log';
+          state._stockPendingPhoto = null;
           render();
         });
       });
@@ -703,6 +942,14 @@
       const newProdInput = document.getElementById('newProductName');
       prodSel.addEventListener('change', ()=>{ newProdInput.style.display = prodSel.value==='__new__' ? 'block' : 'none'; });
 
+      const camBtn = document.getElementById('camStockBtn');
+      if(camBtn) camBtn.addEventListener('click', async ()=>{
+        const photo = await capturePhoto();
+        if(photo){ state._stockPendingPhoto = photo; render(); }
+      });
+      const removeBtn = document.getElementById('removePendingPhoto');
+      if(removeBtn) removeBtn.addEventListener('click', ()=>{ state._stockPendingPhoto = null; render(); });
+
       document.getElementById('addMoveBtn').addEventListener('click', async ()=>{
         const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
         const dir = state.stockLogDirection;
@@ -720,10 +967,24 @@
         const d = state.selectedDate;
         const mk = monthKeyOf(d);
         const m = await getStock(sup.id, mk);
-        m[dir].push({ day: d.getDate(), productId, qty });
+        const entry = { day: d.getDate(), productId, qty };
+        if(state._stockPendingPhoto) entry.photo = state._stockPendingPhoto;
+        m[dir].push(entry);
         await saveStock(sup.id, mk);
+        state._stockPendingPhoto = null;
         flashLogConfirm('✓ Ligne ajoutée', false);
         render();
+      });
+
+      document.querySelectorAll('[data-viewphoto-move]').forEach(img=>{
+        img.addEventListener('click', async ()=>{
+          const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
+          const dir = state.stockLogDirection;
+          const d = state.selectedDate; const mk = monthKeyOf(d);
+          const m = await getStock(sup.id, mk);
+          const mv = m[dir][Number(img.dataset.viewphotoMove)];
+          if(mv && mv.photo) openPhotoLightbox(mv.photo);
+        });
       });
 
       document.querySelectorAll('[data-rm]').forEach(btn=>{
@@ -1016,11 +1277,22 @@
 
     function renderLists(){
       document.getElementById('revList').innerHTML = state.settings.revenueSources.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmrev="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune source</div>`;
-      document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row"><span class="field-label">${escapeHtml(c.name)}</span><button class="emp-remove" data-rmexp="${c.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune catégorie</div>`;
+      document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;">
+          <input type="checkbox" data-linksup="${c.id}" ${c.linksSupplier?'checked':''} style="width:16px;height:16px;accent-color:var(--teal);">
+          <span class="field-label">${escapeHtml(c.name)}</span>
+        </label>
+        <span style="font-size:10px;color:var(--muted);margin-right:6px;">fournisseur</span>
+        <button class="emp-remove" data-rmexp="${c.id}">×</button>
+      </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune catégorie</div>`;
       document.getElementById('supList').innerHTML = state.settings.suppliers.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmsup="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucun fournisseur</div>`;
 
       back.querySelectorAll('[data-rmrev]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.revenueSources=state.settings.revenueSources.filter(x=>x.id!==b.dataset.rmrev); await saveSettings(); renderLists(); }));
       back.querySelectorAll('[data-rmexp]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.expenseCategories=state.settings.expenseCategories.filter(x=>x.id!==b.dataset.rmexp); await saveSettings(); renderLists(); }));
+      back.querySelectorAll('[data-linksup]').forEach(cb=>cb.addEventListener('change', async ()=>{
+        const c = state.settings.expenseCategories.find(x=>x.id===cb.dataset.linksup);
+        if(c){ c.linksSupplier = cb.checked; await saveSettings(); }
+      }));
       back.querySelectorAll('[data-rmsup]').forEach(b=>b.addEventListener('click', async ()=>{
         if(!confirm('Retirer ce fournisseur ? Les produits associés resteront mais ne seront plus rattachés à un fournisseur visible.')) return;
         state.settings.suppliers=state.settings.suppliers.filter(x=>x.id!==b.dataset.rmsup); await saveSettings(); renderLists();
@@ -1034,7 +1306,7 @@
     });
     back.addEventListener('click', e=>{ if(e.target===back){ document.body.removeChild(back); render(); } });
     document.getElementById('addRevBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newRevSrc'); const v=inp.value.trim(); if(!v) return; state.settings.revenueSources.push({id:uid('r'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
-    document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0}); await saveSettings(); inp.value=''; renderLists(); });
+    document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0,linksSupplier:false}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addSupBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newSupName'); const v=inp.value.trim(); if(!v) return; state.settings.suppliers.push({id:uid('s'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
 
     document.getElementById('exportBtn').addEventListener('click', async ()=>{
