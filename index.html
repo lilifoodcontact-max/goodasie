@@ -25,25 +25,25 @@
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased; }
   #app { max-width:600px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; position:relative; }
-
+ 
   .topbar { display:flex; align-items:center; justify-content:space-between; padding:18px 18px 6px; }
   .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:19px; letter-spacing:-0.01em; }
   .brand .sub { display:block; font-family:'Inter',sans-serif; font-weight:500; font-size:11px; color:var(--muted); letter-spacing:0.02em; margin-top:1px; }
   .icon-btn { width:36px; height:36px; border-radius:10px; border:1px solid var(--line); background:var(--paper); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink); }
   .icon-btn:hover { background:var(--teal-dim); }
   .icon-btn:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
-
+ 
   main { flex:1; padding:6px 16px 100px; }
-
+ 
   h1.page-title { font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; margin:10px 2px 14px; display:flex; align-items:center; gap:8px; }
   .crumb { display:flex; align-items:center; gap:8px; margin:10px 2px 14px; }
   .crumb button { background:none; border:none; color:var(--teal); font-family:'Inter',sans-serif; font-weight:600; font-size:13.5px; cursor:pointer; padding:4px 0; display:flex; align-items:center; gap:4px; }
   .crumb .sep { color:var(--muted); }
   .crumb .current { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:16px; }
-
+ 
   .section-title { font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:700; margin:22px 2px 9px; display:flex; align-items:center; gap:7px; color:var(--ink); }
   .section-title .swatch { width:8px; height:8px; border-radius:2px; }
-
+ 
   .card { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
   .field-row { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid var(--line); gap:10px; }
   .field-row:last-child { border-bottom:none; }
@@ -52,7 +52,7 @@
   .field-input:focus-visible { outline:2px solid var(--teal); background:#fff; }
   .field-suffix { font-size:11.5px; color:var(--muted); width:14px; }
   .field-input-wrap { display:flex; align-items:center; gap:4px; }
-
+ 
   .acc-row { align-items:center; }
   .field-label-wrap { display:flex; flex-direction:column; gap:1px; }
   .field-current { font-size:11px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
@@ -71,28 +71,28 @@
   .acc-flash.show { opacity:1; }
   .auto-save-note { text-align:center; font-size:11.5px; color:var(--muted); margin-top:16px; display:flex; align-items:center; justify-content:center; gap:6px; }
   .auto-save-note .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
-
+ 
   .cam-btn { width:34px; height:34px; border-radius:10px; border:1px solid var(--line); background:var(--paper); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--teal); margin-left:auto; }
   .cam-btn:hover { background:var(--teal-dim); }
   .section-title-row { display:flex; align-items:center; gap:7px; margin:22px 2px 9px; }
   .section-title-row .section-title { margin:0; }
-
+ 
   .pick-option { display:flex; align-items:center; justify-content:space-between; padding:14px; border-bottom:1px solid var(--line); cursor:pointer; font-size:14px; font-weight:500; }
   .pick-option:last-child { border-bottom:none; }
   .pick-option:hover { background:#FBF7EC; }
   .pick-option .chev { color:var(--muted); }
-
+ 
   .photo-thumb { width:100%; max-height:220px; object-fit:contain; border-radius:10px; border:1px solid var(--line); margin-bottom:10px; background:#F3EFE6; }
   .photo-thumb-sm { width:34px; height:34px; border-radius:8px; object-fit:cover; border:1px solid var(--line); cursor:pointer; flex-shrink:0; }
   .photo-remove-btn { position:absolute; top:8px; right:8px; background:rgba(36,31,26,0.7); color:#fff; border:none; border-radius:50%; width:26px; height:26px; cursor:pointer; font-size:14px; }
   .photo-preview-wrap { position:relative; margin-bottom:10px; }
-
+ 
   .receipt-item { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--line); }
   .receipt-item:last-child { border-bottom:none; }
   .receipt-item .ri-amount { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:13px; flex:1; }
   .receipt-item .ri-tag { font-size:10.5px; color:var(--muted); background:var(--teal-dim); padding:2px 7px; border-radius:10px; }
   .receipt-item .ri-del { color:var(--red); background:none; border:none; cursor:pointer; font-size:16px; padding:2px 6px; }
-
+ 
   .tap-card { display:flex; align-items:center; justify-content:space-between; padding:16px; border-bottom:1px solid var(--line); cursor:pointer; }
   .tap-card:last-child { border-bottom:none; }
   .tap-card:hover { background:#FBF7EC; }
@@ -101,16 +101,16 @@
   .tap-card .tc-title { font-weight:600; font-size:14px; }
   .tap-card .tc-sub { font-size:11.5px; color:var(--muted); margin-top:1px; }
   .tap-card .chev { color:var(--muted); font-size:16px; }
-
+ 
   .btn { border:none; border-radius:12px; padding:13px; font-size:14.5px; font-weight:600; font-family:'Inter',sans-serif; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
   .btn-primary { background:var(--teal); color:#fff; width:100%; margin-top:18px; }
   .btn-primary:hover { background:#1f4650; }
   .btn-ghost { background:var(--paper); border:1px solid var(--line); color:var(--ink); }
   .btn-sm { padding:8px 14px; font-size:12.5px; border-radius:9px; }
   .save-confirm { text-align:center; font-size:12px; color:var(--teal); margin-top:9px; height:14px; }
-
+ 
   select.field-select, input.text-input { font-family:'Inter',sans-serif; font-size:13.5px; border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#FCFAF5; color:var(--ink); width:100%; }
-
+ 
   .receipt { background:var(--paper); border:1px solid var(--line); border-radius:4px; box-shadow:var(--shadow); padding:18px 20px 15px; font-family:'IBM Plex Mono',monospace; position:relative; margin-bottom:22px; }
   .receipt::after { content:""; position:absolute; left:0; right:0; bottom:-9px; height:18px; background:radial-gradient(circle at 9px 0, transparent 9px, var(--bg) 9.5px) repeat-x; background-size:18px 18px; }
   .receipt-title { font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--muted); text-align:center; margin-bottom:11px; }
@@ -120,7 +120,7 @@
   .receipt-total { font-size:16px; font-weight:700; }
   .receipt-total .val.pos { color:var(--teal); }
   .receipt-total .val.neg { color:var(--red); }
-
+ 
   .date-row { display:flex; align-items:center; gap:10px; margin:8px 0 16px; }
   .date-row button.nav-arrow { width:34px; height:34px; border-radius:50%; border:1px solid var(--line); background:var(--paper); cursor:pointer; color:var(--muted); font-size:16px; }
   .date-row button.nav-arrow:hover { background:var(--teal-dim); color:var(--ink); }
@@ -128,26 +128,26 @@
   .date-label { font-family:'Space Grotesk',sans-serif; font-size:17px; font-weight:700; text-transform:capitalize; cursor:pointer; }
   .date-sub { font-size:11.5px; color:var(--muted); }
   .date-input-hidden { position:absolute; inset:0; opacity:0; cursor:pointer; }
-
+ 
   .attend-grid { display:flex; flex-wrap:wrap; gap:8px; padding:13px 14px; }
   .attend-chip { display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:20px; border:1px solid var(--line); background:#FCFAF5; cursor:pointer; font-size:13px; }
   .attend-chip .mark { width:14px; height:14px; border-radius:50%; border:1.5px solid var(--muted); display:flex; align-items:center; justify-content:center; font-size:9px; color:transparent; }
   .attend-chip.on { background:var(--amber-dim); border-color:var(--amber); color:#7a3f13; }
   .attend-chip.on .mark { background:var(--amber); border-color:var(--amber); color:#fff; }
-
+ 
   nav.tabbar { position:fixed; left:0; right:0; bottom:0; background:rgba(250,247,241,0.94); backdrop-filter:blur(10px); border-top:1px solid var(--line); display:flex; justify-content:center; z-index:20; }
   .tabbar-inner { max-width:600px; width:100%; display:flex; }
   .tab-btn { flex:1; border:none; background:none; cursor:pointer; padding:9px 2px 11px; display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--muted); font-size:9.8px; font-weight:600; }
   .tab-btn.active { color:var(--teal); }
   .tab-btn svg { width:19px; height:19px; }
-
+ 
   .kpi-row { display:flex; gap:9px; margin-bottom:9px; }
   .kpi { flex:1; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:13px 13px; }
   .kpi-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
   .kpi-val { font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600; margin-top:3px; }
   .kpi-val.pos { color:var(--teal); }
   .kpi-val.neg { color:var(--red); }
-
+ 
   .chart-card { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:16px 14px 8px; }
   .bars { display:flex; align-items:flex-end; gap:5px; height:120px; margin-top:4px; }
   .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:2px; }
@@ -159,19 +159,19 @@
   .legend { display:flex; gap:14px; justify-content:center; margin-top:10px; font-size:11px; color:var(--muted); }
   .legend span { display:inline-flex; align-items:center; gap:5px; }
   .legend i { width:8px; height:8px; border-radius:2px; display:inline-block; }
-
+ 
   .empty-state { text-align:center; color:var(--muted); font-size:13px; padding:50px 20px; }
   .empty-state .big { font-size:32px; display:block; margin-bottom:9px; }
-
+ 
   .add-row { display:flex; gap:8px; padding:13px 14px; flex-wrap:wrap; }
   .add-row input, .add-row select { flex:1; min-width:110px; }
   .add-row button { background:var(--ink); color:#fff; border:none; border-radius:8px; padding:0 15px; font-size:12.5px; font-weight:600; cursor:pointer; }
-
+ 
   .emp-card { display:flex; align-items:center; justify-content:space-between; padding:13px 14px; border-bottom:1px solid var(--line); }
   .emp-card:last-child { border-bottom:none; }
   .emp-remove { color:var(--red); background:none; border:none; cursor:pointer; font-size:18px; padding:4px 6px; }
   .mini-input { width:66px; text-align:right; font-family:'IBM Plex Mono',monospace; border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-size:12px; background:#FCFAF5; }
-
+ 
   .day-row { display:flex; align-items:center; justify-content:space-between; padding:11px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
   .day-row:last-child { border-bottom:none; }
   .day-row:hover { background:#FBF7EC; }
@@ -179,12 +179,12 @@
   .day-left .dow { color:var(--muted); font-weight:400; text-transform:capitalize; }
   .day-nums { display:flex; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; }
   .move-remove { color: var(--red); background:none; border:none; cursor:pointer; font-size:16px; padding:2px 6px; }
-
+ 
   .backdrop { position:fixed; inset:0; background:rgba(36,31,26,0.35); display:flex; align-items:flex-end; justify-content:center; z-index:50; }
   .sheet { background:var(--bg); width:100%; max-width:600px; border-radius:20px 20px 0 0; max-height:88vh; overflow-y:auto; padding:18px 18px 28px; }
   .sheet-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
   .sheet-head h2 { font-family:'Space Grotesk',sans-serif; font-size:17px; margin:0; }
-
+ 
   .tax-note { font-size:11px; color:var(--muted); font-style:italic; line-height:1.5; padding:10px 2px; }
   .flag-box { padding:13px 14px; border-radius:12px; font-weight:600; font-size:13px; margin-top:6px; }
   .flag-ok { background:var(--teal-dim); color:var(--teal); }
@@ -193,11 +193,11 @@
 </head>
 <body>
 <div id="app"></div>
-
+ 
 <script>
 (function(){
   "use strict";
-
+ 
   /* ---------------- storage shim (works in Claude artifacts + standalone) ---------------- */
   if (!window.storage) {
     window.storage = {
@@ -209,7 +209,7 @@
   }
   async function sGet(key){ try{ const r=await window.storage.get(key,false); return r?JSON.parse(r.value):null; }catch(e){ return null; } }
   async function sSet(key,val){ try{ await window.storage.set(key, JSON.stringify(val), false); }catch(e){ console.error('storage set failed',e); } }
-
+ 
   const DOW = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
   const MONTHS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
   function pad(n){ return n<10 ? '0'+n : ''+n; }
@@ -220,7 +220,7 @@
   function fmtPct(n){ return (Number(n)*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1})+' %'; }
   function uid(prefix){ return prefix+Date.now()+Math.floor(Math.random()*1000); }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
+ 
   /* ---------------- default settings ---------------- */
   const DEFAULT_SETTINGS = {
     companyName: "Good'Asie",
@@ -241,14 +241,14 @@
     products: [],
     tax: { tvaCollectee:0.10, isSeuil:42500, isTauxReduit:0.15, isTauxNormal:0.25, cvaeSeuil:152500, cfeAnnuelle:0 }
   };
-
+ 
   const state = {
     tab:'today', stockView:'landing', stockLogSupplier:null, stockLogDirection:null,
     selectedDate:new Date(), settings:null, monthCache:{}, stockCache:{},
     bilanYear:new Date().getFullYear(), teamMonth:monthKeyOf(new Date()),
     historyMonthsShown:6, taxYear:new Date().getFullYear()
   };
-
+ 
   async function loadSettings(){
     let s = await sGet('settings');
     if(!s){ s=DEFAULT_SETTINGS; await sSet('settings',s); }
@@ -263,7 +263,7 @@
     state.settings = s;
   }
   async function saveSettings(){ await sSet('settings', state.settings); }
-
+ 
   async function getMonth(mk){
     if(state.monthCache[mk]) return state.monthCache[mk];
     let m = await sGet('month:'+mk);
@@ -272,7 +272,7 @@
     return m;
   }
   async function saveMonth(mk){ await sSet('month:'+mk, state.monthCache[mk]); }
-
+ 
   function emptyDay(){ return { revenue:{}, expenses:{}, attendance:[], receipts:[] }; }
   function dayTotals(day, settings){
     let rev=0; (settings.revenueSources||[]).forEach(s=>rev+=Number(day.revenue[s.id]||0));
@@ -280,7 +280,7 @@
     let sal=0; (day.attendance||[]).forEach(a=>sal+=Number(a.rate||0));
     return { rev, exp:exp+sal, sal, expNoSal:exp };
   }
-
+ 
   /* ---------------- photo capture + compression ---------------- */
   function compressImage(file, maxWidth, quality){
     maxWidth = maxWidth || 900; quality = quality || 0.55;
@@ -328,7 +328,7 @@
     back.addEventListener('click', ()=>document.body.removeChild(back));
     document.body.appendChild(back);
   }
-
+ 
   async function getStock(supplierId, mk){
     const key = supplierId+':'+mk;
     if(state.stockCache[key]) return state.stockCache[key];
@@ -338,7 +338,7 @@
     return m;
   }
   async function saveStock(supplierId, mk){ await sSet('stock:'+supplierId+':'+mk, state.stockCache[supplierId+':'+mk]); }
-
+ 
   // load ALL stock movements across all months for a supplier (for aggregation)
   async function getAllStockForSupplier(supplierId){
     const list = await window.storage.list('stock:'+supplierId+':', false).catch(()=>({keys:[]}));
@@ -352,7 +352,7 @@
     }
     return out;
   }
-
+ 
   async function computeStockSummary(){
     const settings = state.settings;
     const perProduct = {};
@@ -371,7 +371,7 @@
     });
     return { rows, totalValue };
   }
-
+ 
   /* ---------------- shell ---------------- */
   const app = document.getElementById('app');
   function iconSvg(name){
@@ -390,7 +390,7 @@
     return icons[name]||'';
   }
   function tabBtn(id,label){ return `<button class="tab-btn ${state.tab===id?'active':''}" data-tab="${id}"><svg viewBox="0 0 24 24">${iconSvg(id)}</svg>${label}</button>`; }
-
+ 
   async function render(){
     if(!state.settings) await loadSettings();
     let body='';
@@ -399,7 +399,7 @@
     else if(state.tab==='team') body = await renderTeam();
     else if(state.tab==='bilan') body = await renderBilan();
     else if(state.tab==='fiscal') body = await renderFiscal();
-
+ 
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">${escapeHtml(state.settings.companyName)}<span class="sub">Gestion interne</span></div>
@@ -419,14 +419,14 @@
       render();
     }));
     document.getElementById('settingsBtn').addEventListener('click', openSettings);
-
+ 
     if(state.tab==='today') bindToday();
     if(state.tab==='stock') bindStock();
     if(state.tab==='team') bindTeam();
     if(state.tab==='bilan') bindBilan();
     if(state.tab==='fiscal') bindFiscal();
   }
-
+ 
   /* ================= AUJOURD'HUI ================= */
   async function renderToday(){
     const d = state.selectedDate;
@@ -437,7 +437,7 @@
     state._todayDay = day;
     const t = dayTotals(day, state.settings);
     const isToday = dateKey(d)===dateKey(new Date());
-
+ 
     const revRows = state.settings.revenueSources.map(s=>{
       const cur = Number(day.revenue[s.id]||0);
       return `
@@ -470,7 +470,7 @@
       const present = day.attendance.some(a=>a.id===e.id);
       return `<div class="attend-chip ${present?'on':''}" data-emp="${e.id}"><span class="mark">${present?'✓':''}</span>${escapeHtml(e.name)}</div>`;
     }).join('');
-
+ 
     return `
       <div class="date-row">
         <button class="nav-arrow" id="prevDay">‹</button>
@@ -508,7 +508,7 @@
     document.getElementById('prevDay').addEventListener('click',()=>{ state.selectedDate=new Date(state.selectedDate.getTime()-86400000); render(); });
     document.getElementById('nextDay').addEventListener('click',()=>{ state.selectedDate=new Date(state.selectedDate.getTime()+86400000); render(); });
     document.getElementById('datePick').addEventListener('change',e=>{ if(e.target.value){ const [y,m,dd]=e.target.value.split('-').map(Number); state.selectedDate=new Date(y,m-1,dd); render(); } });
-
+ 
     async function commitAdd(kind, key, inputEl){
       const raw = inputEl.value;
       const amount = Number(raw);
@@ -525,7 +525,7 @@
       bucket[key] = Number(bucket[key]||0) + amount;
       await saveMonth(mk);
       state._todayDay = JSON.parse(JSON.stringify(day));
-
+ 
       inputEl.value = '';
       const row = inputEl.closest('.acc-row');
       const curLabel = row.querySelector('.field-current');
@@ -539,7 +539,7 @@
       setTimeout(()=>{ flash.classList.remove('show'); }, 1100);
       updateReceiptLive();
     }
-
+ 
     document.querySelectorAll('.acc-add-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const row = btn.closest('.acc-row');
@@ -570,20 +570,20 @@
         updateReceiptLive();
       });
     });
-
+ 
     document.querySelectorAll('.field-current.fixable').forEach(label=>{
       label.addEventListener('click', ()=>{
         const kind = label.dataset.kind, key = label.dataset.key;
         openAmountDetailSheet(kind, key);
       });
     });
-
+ 
     const camBtn = document.getElementById('camDepenseBtn');
     if(camBtn) camBtn.addEventListener('click', startExpensePhotoFlow);
     const camRevBtn = document.getElementById('camRevenuBtn');
     if(camRevBtn) camRevBtn.addEventListener('click', startRevenuePhotoFlow);
   }
-
+ 
   /* ---------------- generic picker / confirm sheets (used by photo flow) ---------------- */
   function showPickerSheet(title, options){
     return new Promise((resolve)=>{
@@ -629,7 +629,7 @@
       input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); back.querySelector('[data-save]').click(); } });
     });
   }
-
+ 
   async function startExpensePhotoFlow(){
     const photo = await capturePhoto();
     if(!photo) return;
@@ -645,7 +645,7 @@
     }
     const amount = await showAmountConfirmSheet(photo, cat.name, supplierName);
     if(!amount) return;
-
+ 
     const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
     const month = await getMonth(mk);
     if(!month.days[dk]) month.days[dk] = emptyDay();
@@ -656,7 +656,7 @@
     await saveMonth(mk);
     render();
   }
-
+ 
   async function startRevenuePhotoFlow(){
     const photo = await capturePhoto();
     if(!photo) return;
@@ -666,7 +666,7 @@
     const source = state.settings.revenueSources.find(s=>s.id===sourceId);
     const amount = await showAmountConfirmSheet(photo, source.name, null);
     if(!amount) return;
-
+ 
     const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
     const month = await getMonth(mk);
     if(!month.days[dk]) month.days[dk] = emptyDay();
@@ -677,7 +677,7 @@
     await saveMonth(mk);
     render();
   }
-
+ 
   function openAmountDetailSheet(kind, key){
     const d = state.selectedDate, dk = String(d.getDate());
     const day = state._todayDay || emptyDay();
@@ -689,7 +689,7 @@
       ? state.settings.revenueSources.find(s=>s.id===key)
       : state.settings.expenseCategories.find(c=>c.id===key);
     const total = Number((kind==='revenue' ? day.revenue : day.expenses)[key]||0);
-
+ 
     const back = document.createElement('div');
     back.className = 'backdrop';
     back.innerHTML = `<div class="sheet" role="dialog" aria-label="${escapeHtml(label.name)}">
@@ -716,11 +716,11 @@
       <button class="btn btn-primary" data-savemanual>Mettre à jour</button>
     </div>`;
     document.body.appendChild(back);
-
+ 
     function close(){ document.body.removeChild(back); }
     back.querySelector('[data-close]').addEventListener('click', close);
     back.addEventListener('click', e=>{ if(e.target===back) close(); });
-
+ 
     back.querySelectorAll('[data-viewphoto]').forEach(img=>{
       img.addEventListener('click', ()=>{
         const r = receipts.find(x=>x.id===img.dataset.viewphoto);
@@ -760,7 +760,7 @@
       render();
     });
   }
-
+ 
   function updateReceiptLive(){
     const t = dayTotals(state._todayDay, state.settings);
     const lines = document.querySelectorAll('.receipt-line');
@@ -771,7 +771,7 @@
     totalEl.textContent = fmtMoneySigned(t.rev-t.exp);
     totalEl.className = 'val '+(t.rev-t.exp>=0?'pos':'neg');
   }
-
+ 
   /* ================= STOCK ================= */
   async function renderStock(){
     if(state.stockView==='landing') return renderStockLanding();
@@ -807,7 +807,7 @@
     return html;
   }
   function svgWrap(name){ return `<svg viewBox="0 0 24 24" width="18" height="18">${iconSvg(name)}</svg>`; }
-
+ 
   async function renderStockVue(){
     const summary = await computeStockSummary();
     let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">Vue générale</span></div>`;
@@ -844,7 +844,7 @@
     }
     return html;
   }
-
+ 
   async function renderStockLog(){
     const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
     const dir = state.stockLogDirection;
@@ -853,9 +853,9 @@
     const mk = monthKeyOf(d);
     const stockMonth = await getStock(sup.id, mk);
     const products = state.settings.products.filter(p=>p.supplierId===sup.id);
-
+ 
     let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">${escapeHtml(sup.name)} · ${dirLabel}</span></div>`;
-
+ 
     const productOptions = products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     const pendingPhoto = state._stockPendingPhoto;
     html += `
@@ -889,7 +889,7 @@
       <button class="btn btn-primary" id="addMoveBtn">Ajouter la ligne</button>
       <div class="save-confirm" id="logConfirm"></div>
     `;
-
+ 
     const moves = stockMonth[dir].slice().sort((a,b)=>b.day-a.day);
     html += `<div class="section-title"><span class="swatch" style="background:var(--ink)"></span>${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>`;
     if(moves.length===0){
@@ -910,7 +910,7 @@
     }
     return html;
   }
-
+ 
   function bindStock(){
     if(state.stockView==='landing'){
       document.getElementById('goVue').addEventListener('click',()=>{ state.stockView='vue'; render(); });
@@ -942,7 +942,7 @@
       const prodSel = document.getElementById('logProduct');
       const newProdInput = document.getElementById('newProductName');
       prodSel.addEventListener('change', ()=>{ newProdInput.style.display = prodSel.value==='__new__' ? 'block' : 'none'; });
-
+ 
       const camBtn = document.getElementById('camStockBtn');
       if(camBtn) camBtn.addEventListener('click', async ()=>{
         const photo = await capturePhoto();
@@ -950,7 +950,7 @@
       });
       const removeBtn = document.getElementById('removePendingPhoto');
       if(removeBtn) removeBtn.addEventListener('click', ()=>{ state._stockPendingPhoto = null; render(); });
-
+ 
       document.getElementById('addMoveBtn').addEventListener('click', async ()=>{
         const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
         const dir = state.stockLogDirection;
@@ -976,7 +976,7 @@
         flashLogConfirm('✓ Ligne ajoutée', false);
         render();
       });
-
+ 
       document.querySelectorAll('[data-viewphoto-move]').forEach(img=>{
         img.addEventListener('click', async ()=>{
           const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
@@ -987,7 +987,7 @@
           if(mv && mv.photo) openPhotoLightbox(mv.photo);
         });
       });
-
+ 
       document.querySelectorAll('[data-rm]').forEach(btn=>{
         btn.addEventListener('click', async ()=>{
           const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
@@ -1008,7 +1008,7 @@
     el.style.color = isError ? 'var(--red)' : 'var(--teal)';
     setTimeout(()=>{ if(el) el.textContent=''; }, 2200);
   }
-
+ 
   /* ================= ÉQUIPE ================= */
   async function renderTeam(){
     const [y,m] = state.teamMonth.split('-').map(Number);
@@ -1031,7 +1031,7 @@
         </div>
       </div>`;
     }).join('') || `<div style="padding:16px 14px;color:var(--muted);font-size:13px;">Aucun employé.</div>`;
-
+ 
     return `
       <h1 class="page-title">👥 Équipe</h1>
       <div class="date-row"><button class="nav-arrow" id="teamPrev">‹</button>
@@ -1071,7 +1071,7 @@
       await saveSettings(); render();
     });
   }
-
+ 
   /* ================= BILAN ================= */
   async function annualTotals(year){
     let rev=0, exp=0;
@@ -1082,7 +1082,7 @@
     }
     return { rev, exp, solde: rev-exp };
   }
-
+ 
   async function renderBilan(){
     const y = state.bilanYear;
     const monthlyData = [];
@@ -1102,12 +1102,12 @@
       const revH=Math.round((x.rev/maxVal)*100), expH=Math.round((x.exp/maxVal)*100);
       return `<div class="bar-col"><div class="bar-pair"><div class="bar rev" style="height:${revH}%"></div><div class="bar exp" style="height:${expH}%"></div></div><div class="bar-m-label">${MONTHS[x.m].slice(0,3)}</div></div>`;
     }).join('');
-
+ 
     const stockSummary = await computeStockSummary();
     const stockValue = stockSummary.totalValue;
     const totalWithStock = solde + stockValue;
     const stockPct = totalWithStock!==0 ? stockValue/totalWithStock : 0;
-
+ 
     return `
       <h1 class="page-title">📊 Bilan</h1>
       <div class="date-row"><button class="nav-arrow" id="yearPrev">‹</button>
@@ -1118,12 +1118,12 @@
         <div class="kpi"><div class="kpi-label">Dépenses</div><div class="kpi-val neg">${fmtMoney(yearExp)}</div></div></div>
       <div class="kpi-row"><div class="kpi"><div class="kpi-label">Solde</div><div class="kpi-val ${solde>=0?'pos':'neg'}">${fmtMoneySigned(solde)}</div></div>
         <div class="kpi"><div class="kpi-label">Marge</div><div class="kpi-val ${marge>=0?'pos':'neg'}">${fmtPct(marge)}</div></div></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Revenus vs dépenses par mois</div>
       <div class="chart-card"><div class="bars">${bars}</div>
         <div class="legend"><span><i style="background:var(--teal)"></i>Revenus</span><span><i style="background:var(--red);opacity:.75"></i>Dépenses</span></div>
       </div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>📦 Stock intégré au bilan</div>
       <div class="tax-note" style="padding:0 2px 8px;">Le stock final est ajouté séparément — le pourcentage indique quelle part du total est du stock non vendu, pas du profit réalisé.</div>
       <div class="receipt" style="margin-top:0;">
@@ -1139,13 +1139,13 @@
     document.getElementById('yearPrev').addEventListener('click',()=>{ state.bilanYear--; render(); });
     document.getElementById('yearNext').addEventListener('click',()=>{ state.bilanYear++; render(); });
   }
-
+ 
   /* ================= FISCAL ================= */
   async function renderFiscal(){
     const y = state.taxYear;
     const { rev: yearRev, solde } = await annualTotals(y);
     const tax = state.settings.tax;
-
+ 
     // TVA déductible by category
     let totalDed = 0;
     const catRows = [];
@@ -1162,7 +1162,7 @@
     }
     const tvaCollectee = yearRev * Number(tax.tvaCollectee||0);
     const tvaNette = Math.max(tvaCollectee - totalDed, 0);
-
+ 
     const isBase = solde;
     let isEstime = 0;
     if(isBase>0){
@@ -1173,7 +1173,7 @@
     const cfe = Number(tax.cfeAnnuelle||0);
     const totalProvisions = tvaNette + isEstime + (cvaeDue?0:0) + cfe; // CVAE flagged separately, not summed numerically when due (needs accountant)
     const couvert = solde >= totalProvisions;
-
+ 
     return `
       <h1 class="page-title">🔔 Suivi fiscal</h1>
       <div class="tax-note" style="padding:0 2px 10px;">Estimation basée sur le cumul de l'année ${y}. À ajuster/valider avec votre comptable — ce n'est pas un calcul officiel.</div>
@@ -1181,7 +1181,7 @@
         <div style="flex:1;text-align:center;font-family:'Space Grotesk',sans-serif;font-weight:700;">${y}</div>
         <button class="nav-arrow" id="taxYearNext">›</button>
       </div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>1. TVA déductible par catégorie</div>
       <div class="card">
         ${catRows.map(r=>`<div class="field-row">
@@ -1190,14 +1190,14 @@
         </div>`).join('')}
       </div>
       <div class="receipt" style="margin-top:12px;"><div class="receipt-line receipt-total"><span>Total TVA déductible</span><span class="val pos">${fmtMoney(totalDed)}</span></div></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--red)"></span>2. TVA nette à payer</div>
       <div class="card">
         <div class="field-row"><span class="field-label">Taux TVA collectée</span><div class="field-input-wrap"><input class="field-input decnum" style="width:60px;" type="text" inputmode="decimal" id="taxTvaCollectee" value="${(tax.tvaCollectee*100).toFixed(1)}"><span class="field-suffix">%</span></div></div>
         <div class="field-row"><span class="field-label">TVA collectée (CA × taux)</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmtMoney(tvaCollectee)}</span></div>
       </div>
       <div class="receipt" style="margin-top:12px;"><div class="receipt-line receipt-total"><span>TVA nette estimée</span><span class="val neg">${fmtMoney(tvaNette)}</span></div></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>3. IS estimé</div>
       <div class="card">
         <div class="field-row"><span class="field-label">Résultat estimé (Solde annuel)</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fmtMoney(isBase)}</span></div>
@@ -1206,19 +1206,19 @@
         <div class="field-row"><span class="field-label">Taux normal</span><div class="field-input-wrap"><input class="field-input decnum" style="width:60px;" type="text" inputmode="decimal" id="taxTauxNormal" value="${(tax.isTauxNormal*100).toFixed(1)}"><span class="field-suffix">%</span></div></div>
       </div>
       <div class="receipt" style="margin-top:12px;"><div class="receipt-line receipt-total"><span>IS estimé</span><span class="val neg">${fmtMoney(isEstime)}</span></div></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>4. CVAE</div>
       <div class="card">
         <div class="field-row"><span class="field-label">Seuil CVAE (CA)</span><div class="field-input-wrap"><input class="field-input" type="number" step="1000" id="taxCvaeSeuil" value="${tax.cvaeSeuil}"><span class="field-suffix">€</span></div></div>
       </div>
       <div class="${cvaeDue?'flag-box flag-warn':'flag-box flag-ok'}" style="margin-top:10px;">${cvaeDue?'⚠️ CA > seuil — à vérifier avec le comptable':'✅ Pas de CVAE (CA sous le seuil)'}</div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--red)"></span>5. CFE</div>
       <div class="card">
         <div class="field-row"><span class="field-label">CFE estimée (avis N-1)</span><div class="field-input-wrap"><input class="field-input" type="number" step="10" id="taxCfe" value="${tax.cfeAnnuelle}"><span class="field-suffix">€</span></div></div>
       </div>
       <div class="tax-note">Échéance habituelle : mi-décembre.</div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>6. Total à provisionner</div>
       <div class="receipt" style="margin-top:0;">
         <div class="receipt-line"><span>TVA nette</span><span>${fmtMoney(tvaNette)}</span></div>
@@ -1249,7 +1249,7 @@
     bindNum('taxCvaeSeuil','cvaeSeuil');
     bindNum('taxCfe','cfeAnnuelle');
   }
-
+ 
   /* ================= SETTINGS ================= */
   function openSettings(){
     const back = document.createElement('div');
@@ -1258,24 +1258,24 @@
       <div class="sheet-head"><h2>Réglages</h2><button class="icon-btn" id="closeSettings">✕</button></div>
       <div class="section-title" style="margin-top:4px;"><span class="swatch" style="background:var(--ink)"></span>Nom de l'entreprise</div>
       <div class="card"><div class="field-row"><input class="text-input" id="companyNameInput" value="${escapeHtml(state.settings.companyName)}" placeholder="Nom affiché en haut de l'app"></div></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Sources de revenus</div>
       <div class="card" id="revList"></div>
       <div class="add-row"><input type="text" id="newRevSrc" placeholder="Nouvelle source"><button id="addRevBtn">Ajouter</button></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--red)"></span>Catégories de dépenses</div>
       <div class="card" id="expList"></div>
       <div class="add-row"><input type="text" id="newExpCat" placeholder="Nouvelle catégorie"><button id="addExpBtn">Ajouter</button></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>Fournisseurs (Stock)</div>
       <div class="card" id="supList"></div>
       <div class="add-row"><input type="text" id="newSupName" placeholder="Nouveau fournisseur"><button id="addSupBtn">Ajouter</button></div>
-
+ 
       <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>Données</div>
       <div class="card"><div class="field-row"><span class="field-label">Exporter une sauvegarde (JSON)</span><button class="btn btn-ghost btn-sm" id="exportBtn">Exporter</button></div></div>
     </div>`;
     document.body.appendChild(back);
-
+ 
     function renderLists(){
       document.getElementById('revList').innerHTML = state.settings.revenueSources.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmrev="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune source</div>`;
       document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row">
@@ -1287,7 +1287,7 @@
         <button class="emp-remove" data-rmexp="${c.id}">×</button>
       </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune catégorie</div>`;
       document.getElementById('supList').innerHTML = state.settings.suppliers.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmsup="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucun fournisseur</div>`;
-
+ 
       back.querySelectorAll('[data-rmrev]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.revenueSources=state.settings.revenueSources.filter(x=>x.id!==b.dataset.rmrev); await saveSettings(); renderLists(); }));
       back.querySelectorAll('[data-rmexp]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.expenseCategories=state.settings.expenseCategories.filter(x=>x.id!==b.dataset.rmexp); await saveSettings(); renderLists(); }));
       back.querySelectorAll('[data-linksup]').forEach(cb=>cb.addEventListener('change', async ()=>{
@@ -1309,7 +1309,7 @@
     document.getElementById('addRevBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newRevSrc'); const v=inp.value.trim(); if(!v) return; state.settings.revenueSources.push({id:uid('r'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0,linksSupplier:false}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addSupBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newSupName'); const v=inp.value.trim(); if(!v) return; state.settings.suppliers.push({id:uid('s'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
-
+ 
     document.getElementById('exportBtn').addEventListener('click', async ()=>{
       const out = { settings: state.settings, months:{}, stock:{} };
       try{
@@ -1324,7 +1324,7 @@
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     });
   }
-
+ 
   // French keyboards show a comma "," for the decimal separator, but number
   // parsing in JS needs a period. Since these fields are now type="text"
   // (not type="number"), any character can be typed; this listener quietly
@@ -1338,9 +1338,10 @@
       }
     }
   });
-
+ 
   render();
 })();
 </script>
 </body>
 </html>
+ 
