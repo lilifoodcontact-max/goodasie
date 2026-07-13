@@ -189,10 +189,31 @@
   .flag-box { padding:13px 14px; border-radius:12px; font-weight:600; font-size:13px; margin-top:6px; }
   .flag-ok { background:var(--teal-dim); color:var(--teal); }
   .flag-warn { background:var(--red-dim); color:var(--red); }
+  .export-btn-row { display:flex; gap:8px; margin:14px 0 4px; }
+  .export-btn-row .btn { flex:1; margin-top:0; }
+  #printArea { display:none; }
+  .rpt-table { border-collapse:collapse; width:100%; font-size:10px; font-family:'IBM Plex Mono',monospace; }
+  .rpt-table th, .rpt-table td { border:1px solid #ccc; padding:3px 5px; text-align:right; white-space:nowrap; }
+  .rpt-table th { background:#eee; text-align:center; font-family:'Inter',sans-serif; font-size:9px; }
+  .rpt-table td:first-child, .rpt-table th:first-child { text-align:left; }
+  .rpt-table tr.rpt-total td { font-weight:700; background:#f5f5f5; }
+  .rpt-header { font-family:'Space Grotesk',sans-serif; margin-bottom:4px; }
+  .rpt-header h1 { font-size:18px; margin:0 0 2px; }
+  .rpt-header .rpt-sub { font-size:11px; color:#555; margin-bottom:14px; }
+  .checklist-row { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--line); }
+  .checklist-row:last-child { border-bottom:none; }
+  .checklist-row input { width:18px; height:18px; accent-color:var(--teal); }
+  @media print {
+    body * { visibility:hidden; }
+    #printArea, #printArea * { visibility:visible; }
+    #printArea { display:block; position:absolute; top:0; left:0; width:100%; }
+    @page { size:landscape; margin:10mm; }
+  }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="printArea"></div>
 
 <script>
 (function(){
@@ -224,17 +245,22 @@
   /* ---------------- default settings ---------------- */
   const DEFAULT_SETTINGS = {
     companyName: "Good'Asie",
-    revenueSources: [{id:'r1',name:'Espèces'},{id:'r2',name:'Belle Vue'},{id:'r3',name:'Maison Rouge'},{id:'r4',name:'TOOGO'}],
+    revenueSources: [
+      {id:'r1',name:'Espèces',paymentType:'especes'},
+      {id:'r2',name:'Belle Vue',paymentType:'cb'},
+      {id:'r3',name:'Maison Rouge',paymentType:'cb'},
+      {id:'r4',name:'TOOGO',paymentType:'cb'}
+    ],
     expenseCategories: [
-      {id:'c1',name:'Loyer',vatRate:0,linksSupplier:false},
-      {id:'c2',name:'Eau et Électricité',vatRate:0.20,linksSupplier:false},
-      {id:'c3',name:'Comptabilité',vatRate:0.20,linksSupplier:false},
-      {id:'c4',name:'Frais de gestion',vatRate:0,linksSupplier:false},
-      {id:'c5',name:'Frais de stand',vatRate:0.20,linksSupplier:false},
-      {id:'c6',name:'Transport',vatRate:0,linksSupplier:false},
-      {id:'c7',name:'Rénovation et Équipement',vatRate:0.20,linksSupplier:false},
-      {id:'c8',name:'Achats',vatRate:0.055,linksSupplier:true},
-      {id:'c9',name:'Autres dépenses',vatRate:0,linksSupplier:false}
+      {id:'c1',name:'Loyer',vatRate:0,linksSupplier:false,declaredByDefault:false},
+      {id:'c2',name:'Eau et Électricité',vatRate:0.20,linksSupplier:false,declaredByDefault:true},
+      {id:'c3',name:'Comptabilité',vatRate:0.20,linksSupplier:false,declaredByDefault:true},
+      {id:'c4',name:'Frais de gestion',vatRate:0,linksSupplier:false,declaredByDefault:false},
+      {id:'c5',name:'Frais de stand',vatRate:0.20,linksSupplier:false,declaredByDefault:true},
+      {id:'c6',name:'Transport',vatRate:0,linksSupplier:false,declaredByDefault:false},
+      {id:'c7',name:'Rénovation et Équipement',vatRate:0.20,linksSupplier:false,declaredByDefault:true},
+      {id:'c8',name:'Achats',vatRate:0.055,linksSupplier:true,declaredByDefault:true},
+      {id:'c9',name:'Autres dépenses',vatRate:0,linksSupplier:false,declaredByDefault:false}
     ],
     employees: [{id:'e1',name:'李姐',rate:70},{id:'e2',name:'小孩儿',rate:90},{id:'e3',name:'郑姐',rate:70}],
     suppliers: [{id:'s1',name:'LX'},{id:'s2',name:'XH'},{id:'s3',name:'KD'},{id:'s4',name:'TANG'}],
@@ -257,6 +283,13 @@
     s.employees = s.employees || DEFAULT_SETTINGS.employees;
     s.suppliers = s.suppliers || DEFAULT_SETTINGS.suppliers;
     s.companyName = s.companyName || DEFAULT_SETTINGS.companyName;
+    // backfill new fields for people who set up their account before these existed
+    s.revenueSources.forEach(r=>{
+      if(!r.paymentType){
+        r.paymentType = /esp[eè]ce|cash|especes/i.test(r.name) ? 'especes' : 'cb';
+      }
+    });
+    s.expenseCategories.forEach(c=>{ if(c.declaredByDefault===undefined) c.declaredByDefault = true; });
     s.expenseCategories.forEach(c=>{ if(c.linksSupplier===undefined) c.linksSupplier = false; });
     s.products = s.products || [];
     s.tax = s.tax || DEFAULT_SETTINGS.tax;
@@ -1133,11 +1166,16 @@
         <div class="receipt-line receipt-total"><span>Bénéfice total</span><span class="val pos">${fmtMoney(totalWithStock)}</span></div>
         <div class="receipt-line" style="margin-top:6px;"><span>→ Part du stock dans ce total</span><span style="font-weight:700;color:var(--amber);">${fmtPct(stockPct)}</span></div>
       </div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>📄 Export comptable</div>
+      <div class="tax-note" style="padding:0 2px 8px;">Génère un rapport PDF détaillé jour par jour, plus un dossier .zip avec les photos des justificatifs, prêts à envoyer au comptable.</div>
+      <button class="btn btn-primary" id="exportMonthBtn" style="margin-top:0;">📄 Exporter un mois</button>
     `;
   }
   function bindBilan(){
     document.getElementById('yearPrev').addEventListener('click',()=>{ state.bilanYear--; render(); });
     document.getElementById('yearNext').addEventListener('click',()=>{ state.bilanYear++; render(); });
+    document.getElementById('exportMonthBtn').addEventListener('click', openExportFlow);
   }
 
   /* ================= FISCAL ================= */
@@ -1251,6 +1289,290 @@
   }
 
   /* ================= SETTINGS ================= */
+  /* ================= EXPORT COMPTABLE (PDF + ZIP) ================= */
+
+  function getDaysInMonth(year, monthIndex){ return new Date(year, monthIndex+1, 0).getDate(); }
+
+  // Keeps letters from any language (Chinese, French accents, etc.) and digits;
+  // only strips characters that are actually unsafe inside a filename.
+  function safeFilenamePart(str){
+    return String(str||'x').trim().replace(/[\/\\:*?"<>|]+/g, '-').replace(/\s+/g, '-') || 'x';
+  }
+
+  function showChecklistSheet(title, items, subtitle){
+    return new Promise(resolve=>{
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+      back.innerHTML = `<div class="sheet" role="dialog" aria-label="${escapeHtml(title)}">
+        <div class="sheet-head"><h2>${escapeHtml(title)}</h2><button class="icon-btn" data-cancel>✕</button></div>
+        ${subtitle?`<div class="tax-note" style="padding:0 2px 10px;">${escapeHtml(subtitle)}</div>`:''}
+        <div class="card">${items.map(it=>`
+          <div class="checklist-row">
+            <input type="checkbox" data-cl-id="${it.value}" ${it.checked?'checked':''}>
+            <span class="field-label">${escapeHtml(it.label)}</span>
+          </div>`).join('')}
+        </div>
+        <button class="btn btn-primary" data-confirm>Continuer</button>
+      `;
+      document.body.appendChild(back);
+      function cleanup(){ document.body.removeChild(back); }
+      back.querySelector('[data-cancel]').addEventListener('click', ()=>{ cleanup(); resolve(null); });
+      back.addEventListener('click', e=>{ if(e.target===back){ cleanup(); resolve(null); } });
+      back.querySelector('[data-confirm]').addEventListener('click', ()=>{
+        const selected = Array.from(back.querySelectorAll('[data-cl-id]:checked')).map(cb=>cb.dataset.clId);
+        cleanup();
+        resolve(selected);
+      });
+    });
+  }
+
+  async function buildMonthlyReportData(year, monthIndex, selectedCatIds){
+    const s = state.settings;
+    const mk = year+'-'+pad(monthIndex+1);
+    const month = await getMonth(mk);
+    const nDays = getDaysInMonth(year, monthIndex);
+    const autreSources = s.revenueSources.filter(r=>r.paymentType==='autre');
+    const selectedCats = s.expenseCategories.filter(c=>selectedCatIds.includes(c.id));
+
+    const rows = [];
+    let totEspeces=0, totCb=0, totRev=0, totExp=0;
+    const totAutres = {}; autreSources.forEach(a=>totAutres[a.id]=0);
+    const totCats = {}; selectedCats.forEach(c=>totCats[c.id]=0);
+
+    for(let day=1; day<=nDays; day++){
+      const dayObj = month.days[String(day)] || emptyDay();
+      let especes=0, cb=0; const autres={};
+      s.revenueSources.forEach(src=>{
+        const amt = Number(dayObj.revenue[src.id]||0);
+        if(src.paymentType==='especes') especes+=amt;
+        else if(src.paymentType==='cb') cb+=amt;
+        else autres[src.id] = (autres[src.id]||0)+amt;
+      });
+      const revTotal = especes+cb+Object.values(autres).reduce((a,b)=>a+b,0);
+      const catsAmt = {};
+      let expTotal = 0;
+      selectedCats.forEach(c=>{ const v = Number(dayObj.expenses[c.id]||0); catsAmt[c.id]=v; expTotal+=v; });
+
+      totEspeces+=especes; totCb+=cb; totRev+=revTotal; totExp+=expTotal;
+      autreSources.forEach(a=>totAutres[a.id]+=(autres[a.id]||0));
+      selectedCats.forEach(c=>totCats[c.id]+=catsAmt[c.id]);
+
+      rows.push({ day, especes, cb, autres, revTotal, catsAmt, expTotal, solde:revTotal-expTotal });
+    }
+
+    // team summary for the month
+    const empStats = {};
+    s.employees.forEach(e=>empStats[e.id]={name:e.name,days:0,total:0});
+    Object.values(month.days).forEach(dayObj=>{
+      (dayObj.attendance||[]).forEach(a=>{
+        if(!empStats[a.id]) empStats[a.id]={name:a.name,days:0,total:0};
+        empStats[a.id].days+=1; empStats[a.id].total+=Number(a.rate||0);
+      });
+    });
+
+    return { year, monthIndex, mk, rows, autreSources, selectedCats,
+      totals:{ especes:totEspeces, cb:totCb, autres:totAutres, rev:totRev, cats:totCats, exp:totExp, solde:totRev-totExp },
+      empStats: Object.values(empStats).filter(e=>e.days>0) };
+  }
+
+  function buildReportHTML(data, includeTeam){
+    const { year, monthIndex, rows, autreSources, selectedCats, totals, empStats } = data;
+    const monthLabel = MONTHS[monthIndex]+' '+year;
+    const cols = ['Date','Espèces','CB', ...autreSources.map(a=>a.name), 'Revenu Total', ...selectedCats.map(c=>c.name), 'Dépenses Total', 'Solde'];
+
+    const rowsHtml = rows.map(r=>{
+      const cells = [
+        pad(r.day)+'/'+pad(monthIndex+1),
+        fmtMoney(r.especes), fmtMoney(r.cb),
+        ...autreSources.map(a=>fmtMoney(r.autres[a.id]||0)),
+        fmtMoney(r.revTotal),
+        ...selectedCats.map(c=>fmtMoney(r.catsAmt[c.id]||0)),
+        fmtMoney(r.expTotal),
+        fmtMoneySigned(r.solde)
+      ];
+      return '<tr>'+cells.map(c=>`<td>${c}</td>`).join('')+'</tr>';
+    }).join('');
+
+    const totalCells = [
+      'TOTAL', fmtMoney(totals.especes), fmtMoney(totals.cb),
+      ...autreSources.map(a=>fmtMoney(totals.autres[a.id]||0)),
+      fmtMoney(totals.rev),
+      ...selectedCats.map(c=>fmtMoney(totals.cats[c.id]||0)),
+      fmtMoney(totals.exp),
+      fmtMoneySigned(totals.solde)
+    ];
+
+    const teamHtml = (includeTeam && empStats.length) ? `
+      <div style="margin-top:22px;">
+        <h2 style="font-family:'Space Grotesk',sans-serif;font-size:14px;">Équipe — ${monthLabel}</h2>
+        <table class="rpt-table" style="width:auto;">
+          <thead><tr><th>Employé</th><th>Jours</th><th>Total versé</th></tr></thead>
+          <tbody>
+            ${empStats.map(e=>`<tr><td>${escapeHtml(e.name)}</td><td>${e.days}</td><td>${fmtMoney(e.total)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '';
+
+    return `
+      <div class="rpt-header">
+        <h1>${escapeHtml(state.settings.companyName)}</h1>
+        <div class="rpt-sub">Rapport comptable mensuel — ${monthLabel} — généré le ${dateKey(new Date())}</div>
+      </div>
+      <table class="rpt-table">
+        <thead><tr>${cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+        <tbody>${rowsHtml}<tr class="rpt-total">${totalCells.map(c=>`<td>${c}</td>`).join('')}</tr></tbody>
+      </table>
+      ${teamHtml}
+    `;
+  }
+
+  function printReport(html){
+    const area = document.getElementById('printArea');
+    area.innerHTML = html;
+    window.print();
+  }
+
+  function loadJSZip(){
+    return new Promise((resolve, reject)=>{
+      if(window.JSZip){ resolve(window.JSZip); return; }
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      script.onload = ()=> resolve(window.JSZip);
+      script.onerror = ()=> reject(new Error('JSZip failed to load — vérifiez votre connexion internet.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  function dataUrlToBase64(dataUrl){
+    const idx = dataUrl.indexOf(',');
+    return idx>=0 ? dataUrl.slice(idx+1) : dataUrl;
+  }
+
+  async function buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos){
+    const s = state.settings;
+    const mk = year+'-'+pad(monthIndex+1);
+    const month = await getMonth(mk);
+    let JSZip;
+    try{ JSZip = await loadJSZip(); }
+    catch(e){ alert(e.message); return false; }
+    const zip = new JSZip();
+    let count = 0;
+
+    Object.entries(month.days).forEach(([dayStr, dayObj])=>{
+      (dayObj.receipts||[]).forEach(r=>{
+        if(!r.photo) return;
+        const kind = r.kind || 'expense';
+        if(kind==='expense' && !selectedCatIds.includes(r.catId)) return;
+        if(kind==='revenue' && !(selectedRevenueIds||[]).includes(r.sourceId)) return;
+        const label = kind==='expense'
+          ? (s.expenseCategories.find(c=>c.id===r.catId)||{}).name
+          : (s.revenueSources.find(x=>x.id===r.sourceId)||{}).name;
+        const folder = kind==='expense' ? 'depenses' : 'recettes';
+        const fname = `${folder}/${pad(Number(dayStr))}-${pad(monthIndex+1)}_${safeFilenamePart(label)}_${r.amount}e.jpg`;
+        zip.file(fname, dataUrlToBase64(r.photo), {base64:true});
+        count++;
+      });
+    });
+
+    if(includeStockPhotos){
+      for(const sup of s.suppliers){
+        const supMonth = await getStock(sup.id, mk);
+        for(const dir of ['entree','sortie']){
+          (supMonth[dir]||[]).forEach(m=>{
+            if(!m.photo) return;
+            const p = s.products.find(x=>x.id===m.productId);
+            const fname = `stock/${safeFilenamePart(sup.name)}-${dir}/${pad(m.day)}-${pad(monthIndex+1)}_${safeFilenamePart(p?p.name:'produit')}_${m.qty}.jpg`;
+            zip.file(fname, dataUrlToBase64(m.photo), {base64:true});
+            count++;
+          });
+        }
+      }
+    }
+
+    if(count===0){ alert('Aucune photo trouvée pour cette sélection — le dossier zip ne serait pas utile, il n’a pas été généré.'); return false; }
+
+    const blob = await zip.generateAsync({type:'blob'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `justificatifs-${mk}.zip`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return true;
+  }
+
+  async function openExportFlow(){
+    // 1) month picker — rolling last 12 months
+    const now = new Date();
+    const monthOptions = [];
+    for(let i=0;i<12;i++){
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      monthOptions.push({ label: MONTHS[d.getMonth()]+' '+d.getFullYear(), value: d.getFullYear()+'-'+pad(d.getMonth()+1) });
+    }
+    const mk = await showPickerSheet('Quel mois exporter ?', monthOptions);
+    if(!mk) return;
+    const [yy, mm] = mk.split('-').map(Number);
+    const year = yy, monthIndex = mm-1;
+
+    // 2) checklist — expense categories to declare in the PDF + optional team summary
+    const catItems = state.settings.expenseCategories.map(c=>({ label:c.name, value:c.id, checked:!!c.declaredByDefault }));
+    catItems.push({ label:'Inclure le résumé Équipe (jours travaillés, salaires)', value:'__equipe__', checked:true });
+    const selected = await showChecklistSheet('Que faut-il inclure dans le PDF ?', catItems,
+      "Décochez ce que vous ne voulez pas transmettre au comptable pour cet export (ex : dépenses payées en espèces sans facture, ou le résumé de l'équipe).");
+    if(selected===null) return;
+    const includeTeam = selected.includes('__equipe__');
+    const selectedCatIds = selected.filter(v=>v!=='__equipe__');
+
+    // 3) separate checklist — which photo sources to bundle into the .zip.
+    // Every place a photo can be taken in the app (recettes, dépenses, stock) is
+    // listed here so nothing is silently left out, and each can be excluded per export.
+    const photoItems = [
+      ...state.settings.revenueSources.map(r=>({ label:'Recettes — '+r.name, value:'rev:'+r.id, checked:true })),
+      { label:'Stock — toutes les entrées/sorties photographiées', value:'__stock__', checked:true },
+    ];
+    const selectedPhoto = await showChecklistSheet('Quelles photos inclure dans le .zip ?', photoItems,
+      "Les dépenses photographiées suivent la même sélection que le PDF ci-dessus. Choisissez ici en plus quelles recettes et quel stock inclure.");
+    if(selectedPhoto===null) return;
+    const selectedRevenueIds = selectedPhoto.filter(v=>v.startsWith('rev:')).map(v=>v.slice(4));
+    const includeStockPhotos = selectedPhoto.includes('__stock__');
+
+    // 4) build report data once, then let the person trigger PDF and/or photos independently —
+    // this avoids relying on a background timer that can get interrupted by the print dialog on mobile.
+    const data = await buildMonthlyReportData(year, monthIndex, selectedCatIds);
+    openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos);
+  }
+
+  function openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos){
+    const monthLabel = MONTHS[monthIndex]+' '+year;
+    const back = document.createElement('div');
+    back.className = 'backdrop';
+    back.innerHTML = `<div class="sheet" role="dialog" aria-label="Export">
+      <div class="sheet-head"><h2>Export — ${monthLabel}</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="tax-note" style="padding:0 2px 12px;">Les deux étapes sont indépendantes — faites-les dans l'ordre que vous voulez, chacune se télécharge séparément.</div>
+      <button class="btn btn-primary" id="doPrintBtn" style="margin-top:0;">📄 Ouvrir l'aperçu d'impression (PDF)</button>
+      <div style="height:10px;"></div>
+      <button class="btn btn-primary" id="doZipBtn" style="margin-top:0;background:var(--amber);">📦 Télécharger les photos (.zip)</button>
+      <div class="save-confirm" id="exportSheetConfirm" style="margin-top:12px;"></div>
+    </div>`;
+    document.body.appendChild(back);
+    function close(){ document.body.removeChild(back); }
+    back.querySelector('[data-close]').addEventListener('click', close);
+    back.addEventListener('click', e=>{ if(e.target===back) close(); });
+
+    document.getElementById('doPrintBtn').addEventListener('click', ()=>{
+      printReport(buildReportHTML(data, includeTeam));
+    });
+    document.getElementById('doZipBtn').addEventListener('click', async ()=>{
+      const confirmEl = document.getElementById('exportSheetConfirm');
+      confirmEl.textContent = 'Préparation du zip…';
+      confirmEl.style.color = 'var(--muted)';
+      const ok = await buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos);
+      if(confirmEl){
+        if(ok){ confirmEl.textContent = '✓ Téléchargement lancé'; confirmEl.style.color = 'var(--teal)'; }
+        else { confirmEl.textContent = ''; }
+      }
+    });
+  }
+
   function openSettings(){
     const back = document.createElement('div');
     back.className='backdrop';
@@ -1277,13 +1599,25 @@
     document.body.appendChild(back);
 
     function renderLists(){
-      document.getElementById('revList').innerHTML = state.settings.revenueSources.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmrev="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune source</div>`;
-      document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;">
+      document.getElementById('revList').innerHTML = state.settings.revenueSources.map(s=>`<div class="field-row">
+        <span class="field-label" style="flex:1;">${escapeHtml(s.name)}</span>
+        <select class="field-select" style="width:auto;flex:0 0 auto;font-size:12px;padding:5px 6px;" data-paytype="${s.id}">
+          <option value="especes" ${s.paymentType==='especes'?'selected':''}>Espèces</option>
+          <option value="cb" ${s.paymentType==='cb'?'selected':''}>CB</option>
+          <option value="autre" ${s.paymentType==='autre'?'selected':''}>Autre</option>
+        </select>
+        <button class="emp-remove" data-rmrev="${s.id}">×</button>
+      </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune source</div>`;
+      document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row" style="flex-wrap:wrap;gap:6px 0;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:140px;">
           <input type="checkbox" data-linksup="${c.id}" ${c.linksSupplier?'checked':''} style="width:16px;height:16px;accent-color:var(--teal);">
           <span class="field-label">${escapeHtml(c.name)}</span>
         </label>
-        <span style="font-size:10px;color:var(--muted);margin-right:6px;">fournisseur</span>
+        <span style="font-size:10px;color:var(--muted);">fournisseur</span>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:10px;">
+          <input type="checkbox" data-declared="${c.id}" ${c.declaredByDefault?'checked':''} style="width:16px;height:16px;accent-color:var(--amber);">
+          <span style="font-size:10px;color:var(--muted);">au comptable</span>
+        </label>
         <button class="emp-remove" data-rmexp="${c.id}">×</button>
       </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune catégorie</div>`;
       document.getElementById('supList').innerHTML = state.settings.suppliers.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmsup="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucun fournisseur</div>`;
@@ -1293,6 +1627,14 @@
       back.querySelectorAll('[data-linksup]').forEach(cb=>cb.addEventListener('change', async ()=>{
         const c = state.settings.expenseCategories.find(x=>x.id===cb.dataset.linksup);
         if(c){ c.linksSupplier = cb.checked; await saveSettings(); }
+      }));
+      back.querySelectorAll('[data-declared]').forEach(cb=>cb.addEventListener('change', async ()=>{
+        const c = state.settings.expenseCategories.find(x=>x.id===cb.dataset.declared);
+        if(c){ c.declaredByDefault = cb.checked; await saveSettings(); }
+      }));
+      back.querySelectorAll('[data-paytype]').forEach(sel=>sel.addEventListener('change', async ()=>{
+        const r = state.settings.revenueSources.find(x=>x.id===sel.dataset.paytype);
+        if(r){ r.paymentType = sel.value; await saveSettings(); }
       }));
       back.querySelectorAll('[data-rmsup]').forEach(b=>b.addEventListener('click', async ()=>{
         if(!confirm('Retirer ce fournisseur ? Les produits associés resteront mais ne seront plus rattachés à un fournisseur visible.')) return;
@@ -1306,8 +1648,8 @@
       await saveSettings();
     });
     back.addEventListener('click', e=>{ if(e.target===back){ document.body.removeChild(back); render(); } });
-    document.getElementById('addRevBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newRevSrc'); const v=inp.value.trim(); if(!v) return; state.settings.revenueSources.push({id:uid('r'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
-    document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0,linksSupplier:false}); await saveSettings(); inp.value=''; renderLists(); });
+    document.getElementById('addRevBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newRevSrc'); const v=inp.value.trim(); if(!v) return; state.settings.revenueSources.push({id:uid('r'),name:v,paymentType:'cb'}); await saveSettings(); inp.value=''; renderLists(); });
+    document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0,linksSupplier:false,declaredByDefault:true}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addSupBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newSupName'); const v=inp.value.trim(); if(!v) return; state.settings.suppliers.push({id:uid('s'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
 
     document.getElementById('exportBtn').addEventListener('click', async ()=>{
