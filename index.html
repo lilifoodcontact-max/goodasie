@@ -265,7 +265,8 @@
     employees: [{id:'e1',name:'李姐',rate:70},{id:'e2',name:'小孩儿',rate:90},{id:'e3',name:'郑姐',rate:70}],
     suppliers: [{id:'s1',name:'LX'},{id:'s2',name:'XH'},{id:'s3',name:'KD'},{id:'s4',name:'TANG'}],
     products: [],
-    tax: { tvaCollectee:0.10, isSeuil:42500, isTauxReduit:0.15, isTauxNormal:0.25, cvaeSeuil:152500, cfeAnnuelle:0 }
+    tax: { tvaCollectee:0.10, isSeuil:42500, isTauxReduit:0.15, isTauxNormal:0.25, cvaeSeuil:152500, cfeAnnuelle:0 },
+    gmail: { clientId: '619844940054-8142qnegaorm7c2k3fnvnp4b9ofile0o.apps.googleusercontent.com', label: 'TPE' }
   };
 
   const state = {
@@ -293,6 +294,7 @@
     s.expenseCategories.forEach(c=>{ if(c.linksSupplier===undefined) c.linksSupplier = false; });
     s.products = s.products || [];
     s.tax = s.tax || DEFAULT_SETTINGS.tax;
+    s.gmail = s.gmail || DEFAULT_SETTINGS.gmail;
     state.settings = s;
   }
   async function saveSettings(){ await sSet('settings', state.settings); }
@@ -1443,12 +1445,108 @@
     });
   }
 
+  /* ---------------- Gmail sync (TPE label) ---------------- */
+
+  function loadGoogleIdentityServices(){
+    return new Promise((resolve, reject)=>{
+      if(window.google && window.google.accounts && window.google.accounts.oauth2){ resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.onload = resolve;
+      script.onerror = ()=> reject(new Error('Impossible de charger Google Identity Services — vérifiez votre connexion internet.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  let _gmailAccessToken = null; // kept in memory only for this session, never persisted to storage
+
+  function getGmailAccessToken(forceConsent){
+    return new Promise(async (resolve, reject)=>{
+      try{ await loadGoogleIdentityServices(); }catch(e){ reject(e); return; }
+      if(_gmailAccessToken && !forceConsent){ resolve(_gmailAccessToken); return; }
+      const clientId = state.settings.gmail.clientId;
+      if(!clientId){ reject(new Error("Aucun Client ID Google configuré (voir Réglages).")); return; }
+      try{
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/gmail.readonly',
+          callback: (resp)=>{
+            if(resp.error){ reject(new Error('Connexion Google refusée ou annulée : '+resp.error)); return; }
+            _gmailAccessToken = resp.access_token;
+            resolve(resp.access_token);
+          },
+        });
+        client.requestAccessToken();
+      }catch(e){ reject(e); }
+    });
+  }
+
+  function collectAttachmentParts(payload, out){
+    out = out || [];
+    if(payload.filename && payload.body && payload.body.attachmentId) out.push(payload);
+    if(payload.parts) payload.parts.forEach(p=>collectAttachmentParts(p, out));
+    return out;
+  }
+
+  function base64UrlToBase64(s){ return s.replace(/-/g,'+').replace(/_/g,'/'); }
+
+  // Fetches every attachment from Gmail messages under the configured label,
+  // restricted to the given month, using the Gmail API directly from the browser.
+  async function fetchGmailTpeAttachments(year, monthIndex){
+    const accessToken = await getGmailAccessToken();
+    const headers = { Authorization: 'Bearer '+accessToken };
+    const labelName = (state.settings.gmail.label||'TPE').trim();
+
+    const labelsRes = await fetch('https://www.googleapis.com/gmail/v1/users/me/labels', {headers});
+    if(!labelsRes.ok) throw new Error('Gmail : impossible de lire les labels ('+labelsRes.status+').');
+    const labelsData = await labelsRes.json();
+    const label = (labelsData.labels||[]).find(l=>l.name.toLowerCase()===labelName.toLowerCase());
+    if(!label) throw new Error(`Label "${labelName}" introuvable dans votre boîte Gmail.`);
+
+    const startDate = `${year}/${pad(monthIndex+1)}/01`;
+    const endD = new Date(year, monthIndex+1, 1);
+    const endDate = `${endD.getFullYear()}/${pad(endD.getMonth()+1)}/01`;
+    const q = `after:${startDate} before:${endDate}`;
+
+    let messages = [];
+    let pageToken = '';
+    do{
+      const url = `https://www.googleapis.com/gmail/v1/users/me/messages?labelIds=${label.id}&q=${encodeURIComponent(q)}`
+        + (pageToken ? `&pageToken=${pageToken}` : '');
+      const listRes = await fetch(url, {headers});
+      if(!listRes.ok) throw new Error('Gmail : impossible de lister les messages ('+listRes.status+').');
+      const listData = await listRes.json();
+      messages = messages.concat(listData.messages||[]);
+      pageToken = listData.nextPageToken || '';
+    } while(pageToken);
+
+    const attachments = [];
+    for(const m of messages){
+      const msgRes = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {headers});
+      if(!msgRes.ok) continue;
+      const msgData = await msgRes.json();
+      const dateHeader = (msgData.payload.headers||[]).find(h=>h.name==='Date');
+      const parts = collectAttachmentParts(msgData.payload, []);
+      for(const part of parts){
+        const attRes = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${m.id}/attachments/${part.body.attachmentId}`, {headers});
+        if(!attRes.ok) continue;
+        const attData = await attRes.json();
+        attachments.push({
+          filename: part.filename || ('piece-jointe-'+m.id),
+          base64: base64UrlToBase64(attData.data),
+          msgDate: dateHeader ? dateHeader.value : ''
+        });
+      }
+    }
+    return attachments;
+  }
+
   function dataUrlToBase64(dataUrl){
     const idx = dataUrl.indexOf(',');
     return idx>=0 ? dataUrl.slice(idx+1) : dataUrl;
   }
 
-  async function buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos){
+  async function buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos, includeGmail){
     const s = state.settings;
     const mk = year+'-'+pad(monthIndex+1);
     const month = await getMonth(mk);
@@ -1489,7 +1587,20 @@
       }
     }
 
-    if(count===0){ alert('Aucune photo trouvée pour cette sélection — le dossier zip ne serait pas utile, il n’a pas été généré.'); return false; }
+    if(includeGmail){
+      try{
+        const attachments = await fetchGmailTpeAttachments(year, monthIndex);
+        attachments.forEach((att, i)=>{
+          const fname = `gmail-${(state.settings.gmail.label||'TPE').toLowerCase()}/${safeFilenamePart(att.filename)}`;
+          zip.file(fname, att.base64, {base64:true});
+          count++;
+        });
+      }catch(e){
+        alert('Gmail : '+e.message+'\n\nLe reste du zip sera quand même généré.');
+      }
+    }
+
+    if(count===0){ alert('Aucune photo/pièce jointe trouvée pour cette sélection — le dossier zip ne serait pas utile, il n’a pas été généré.'); return false; }
 
     const blob = await zip.generateAsync({type:'blob'});
     const url = URL.createObjectURL(blob);
@@ -1528,29 +1639,31 @@
     const photoItems = [
       ...state.settings.revenueSources.map(r=>({ label:'Recettes — '+r.name, value:'rev:'+r.id, checked:true })),
       { label:'Stock — toutes les entrées/sorties photographiées', value:'__stock__', checked:true },
+      { label:`📧 Emails Gmail (label "${state.settings.gmail.label}")`, value:'__gmail__', checked:true },
     ];
     const selectedPhoto = await showChecklistSheet('Quelles photos inclure dans le .zip ?', photoItems,
-      "Les dépenses photographiées suivent la même sélection que le PDF ci-dessus. Choisissez ici en plus quelles recettes et quel stock inclure.");
+      "Les dépenses photographiées suivent la même sélection que le PDF ci-dessus. Choisissez ici en plus quelles recettes, quel stock et si les pièces jointes Gmail doivent être inclus.");
     if(selectedPhoto===null) return;
     const selectedRevenueIds = selectedPhoto.filter(v=>v.startsWith('rev:')).map(v=>v.slice(4));
     const includeStockPhotos = selectedPhoto.includes('__stock__');
+    const includeGmail = selectedPhoto.includes('__gmail__');
 
     // 4) build report data once, then let the person trigger PDF and/or photos independently —
     // this avoids relying on a background timer that can get interrupted by the print dialog on mobile.
     const data = await buildMonthlyReportData(year, monthIndex, selectedCatIds);
-    openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos);
+    openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos, includeGmail);
   }
 
-  function openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos){
+  function openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos, includeGmail){
     const monthLabel = MONTHS[monthIndex]+' '+year;
     const back = document.createElement('div');
     back.className = 'backdrop';
     back.innerHTML = `<div class="sheet" role="dialog" aria-label="Export">
       <div class="sheet-head"><h2>Export — ${monthLabel}</h2><button class="icon-btn" data-close>✕</button></div>
-      <div class="tax-note" style="padding:0 2px 12px;">Les deux étapes sont indépendantes — faites-les dans l'ordre que vous voulez, chacune se télécharge séparément.</div>
+      <div class="tax-note" style="padding:0 2px 12px;">Les deux étapes sont indépendantes — faites-les dans l'ordre que vous voulez, chacune se télécharge séparément.${includeGmail?' La première fois, Google vous demandera de vous connecter et d’autoriser l’accès en lecture seule à Gmail.':''}</div>
       <button class="btn btn-primary" id="doPrintBtn" style="margin-top:0;">📄 Ouvrir l'aperçu d'impression (PDF)</button>
       <div style="height:10px;"></div>
-      <button class="btn btn-primary" id="doZipBtn" style="margin-top:0;background:var(--amber);">📦 Télécharger les photos (.zip)</button>
+      <button class="btn btn-primary" id="doZipBtn" style="margin-top:0;background:var(--amber);">📦 Télécharger les photos + pièces jointes (.zip)</button>
       <div class="save-confirm" id="exportSheetConfirm" style="margin-top:12px;"></div>
     </div>`;
     document.body.appendChild(back);
@@ -1565,7 +1678,7 @@
       const confirmEl = document.getElementById('exportSheetConfirm');
       confirmEl.textContent = 'Préparation du zip…';
       confirmEl.style.color = 'var(--muted)';
-      const ok = await buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos);
+      const ok = await buildAndDownloadZip(year, monthIndex, selectedCatIds, selectedRevenueIds, includeStockPhotos, includeGmail);
       if(confirmEl){
         if(ok){ confirmEl.textContent = '✓ Téléchargement lancé'; confirmEl.style.color = 'var(--teal)'; }
         else { confirmEl.textContent = ''; }
@@ -1580,6 +1693,19 @@
       <div class="sheet-head"><h2>Réglages</h2><button class="icon-btn" id="closeSettings">✕</button></div>
       <div class="section-title" style="margin-top:4px;"><span class="swatch" style="background:var(--ink)"></span>Nom de l'entreprise</div>
       <div class="card"><div class="field-row"><input class="text-input" id="companyNameInput" value="${escapeHtml(state.settings.companyName)}" placeholder="Nom affiché en haut de l'app"></div></div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--red)"></span>📧 Synchronisation Gmail</div>
+      <div class="card">
+        <div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <span class="field-label">Client ID Google OAuth</span>
+          <input class="text-input" id="gmailClientIdInput" value="${escapeHtml(state.settings.gmail.clientId)}" placeholder="xxxxx.apps.googleusercontent.com" style="font-size:11px;">
+        </div>
+        <div class="field-row">
+          <span class="field-label">Nom du label Gmail à synchroniser</span>
+          <input class="text-input" id="gmailLabelInput" value="${escapeHtml(state.settings.gmail.label)}" style="max-width:100px;">
+        </div>
+      </div>
+      <div class="tax-note" style="padding:6px 2px 10px;">La synchronisation se fait depuis le bouton d'export (Bilan). Le Client ID n'est pas un secret — il identifie l'app auprès de Google, sans lui les emails ne peuvent pas être lus.</div>
 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Sources de revenus</div>
       <div class="card" id="revList"></div>
@@ -1645,6 +1771,15 @@
     document.getElementById('closeSettings').addEventListener('click',()=>{ document.body.removeChild(back); render(); });
     document.getElementById('companyNameInput').addEventListener('change', async (e)=>{
       state.settings.companyName = e.target.value.trim() || "Good'Asie";
+      await saveSettings();
+    });
+    document.getElementById('gmailClientIdInput').addEventListener('change', async (e)=>{
+      state.settings.gmail.clientId = e.target.value.trim();
+      _gmailAccessToken = null; // client changed, any cached token is no longer valid for it
+      await saveSettings();
+    });
+    document.getElementById('gmailLabelInput').addEventListener('change', async (e)=>{
+      state.settings.gmail.label = e.target.value.trim() || 'TPE';
       await saveSettings();
     });
     back.addEventListener('click', e=>{ if(e.target===back){ document.body.removeChild(back); render(); } });
