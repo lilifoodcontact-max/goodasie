@@ -1,8 +1,10 @@
-// Vercel Serverless Function.
-// Receives a photo or PDF of a supplier invoice from the front-end, asks Gemini
-// to read the supplier's name off it, and returns just that name.
-// The Gemini API key NEVER reaches the browser — it only lives here, read from
-// the GEMINI_API_KEY environment variable configured in the Vercel project.
+/* Vercel Serverless Function.
+   Receives a photo or PDF of a supplier invoice from the front-end, asks Gemini
+   to read the supplier's name off it, and returns just that name.
+   The Gemini API key NEVER reaches the browser: it only lives here, read from
+   the GEMINI_API_KEY environment variable configured in the Vercel project.
+   NOTE: this file intentionally avoids "//" line comments in the middle of code,
+   so that it still works even if line breaks get flattened during copy/paste. */
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
