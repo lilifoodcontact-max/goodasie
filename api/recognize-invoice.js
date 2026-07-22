@@ -32,10 +32,13 @@ module.exports = async function handler(req, res) {
 
   const prompt = [
     "Tu regardes la photo ou le PDF d'une facture, d'un bon de livraison ou d'un ticket envoyé PAR un fournisseur À un restaurant.",
-    "Ta seule tâche : trouver le nom de l'entreprise FOURNISSEUR qui a émis ce document (celle qui vend / livre la marchandise), PAS le nom du restaurant destinataire.",
+    "Deux choses à trouver :",
+    "1) Le nom de l'entreprise FOURNISSEUR qui a émis ce document (celle qui vend / livre la marchandise), PAS le nom du restaurant destinataire.",
+    "2) Le MONTANT TOTAL TTC à payer (le montant final, taxes comprises -- généralement le plus grand total, souvent en bas du document, parfois appelé \"Total TTC\", \"Net à payer\" ou \"Total\").",
     'Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour, au format exact :',
-    '{"supplierName": "Nom du fournisseur"}',
-    "Si tu ne peux pas identifier le fournisseur avec une raisonnable certitude, réponds : {\"supplierName\": null}"
+    '{"supplierName": "Nom du fournisseur ou null", "amount": 123.45}',
+    "Si tu ne peux pas identifier le fournisseur avec une raisonnable certitude, mets supplierName à null.",
+    "Si tu ne peux pas lire le montant total avec certitude, mets amount à null. Le montant doit être un nombre pur (pas de texte, pas de symbole €), avec un point comme séparateur décimal, jamais de virgule."
   ].join('\n');
 
   const geminiBody = {
@@ -46,13 +49,12 @@ module.exports = async function handler(req, res) {
       ]
     }],
     generationConfig: {
-      temperature: 0,
       responseMimeType: 'application/json'
     }
   };
 
   try {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3.5-flash';
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
@@ -80,8 +82,11 @@ module.exports = async function handler(req, res) {
     const supplierName = (parsed && typeof parsed.supplierName === 'string' && parsed.supplierName.trim())
       ? parsed.supplierName.trim()
       : null;
+    const amount = (parsed && typeof parsed.amount === 'number' && isFinite(parsed.amount) && parsed.amount > 0)
+      ? parsed.amount
+      : null;
 
-    res.status(200).json({ supplierName });
+    res.status(200).json({ supplierName, amount });
   } catch (e) {
     console.error('recognize-invoice failed', e);
     res.status(500).json({ error: 'Erreur serveur lors de la reconnaissance.' });
