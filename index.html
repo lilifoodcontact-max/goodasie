@@ -297,8 +297,8 @@
     companyName: "Good'Asie",
     revenueSources: [
       {id:'r1',name:'Espèces',paymentType:'especes'},
-      {id:'r2',name:'Belle Vue',paymentType:'cb'},
-      {id:'r3',name:'Maison Rouge',paymentType:'cb'},
+      {id:'r2',name:'Belle Vue',paymentType:'cb',km:70,fixedDays:[3,6]},
+      {id:'r3',name:'Maison Rouge',paymentType:'cb',km:70,fixedDays:[2,5,0]},
       {id:'r4',name:'TOOGO',paymentType:'cb'}
     ],
     expenseCategories: [
@@ -313,10 +313,11 @@
       {id:'c9',name:'Autres dépenses',vatRate:0,linksSupplier:false,declaredByDefault:false}
     ],
     employees: [{id:'e1',name:'李姐',rate:70},{id:'e2',name:'小孩儿',rate:90},{id:'e3',name:'郑姐',rate:70}],
-    suppliers: [{id:'s1',name:'LX'},{id:'s2',name:'XH'},{id:'s3',name:'KD'},{id:'s4',name:'TANG'}],
+    suppliers: [{id:'s1',name:'LX',km:38},{id:'s2',name:'XH',km:40},{id:'s3',name:'KD',km:96},{id:'s4',name:'TANG',km:38}],
     products: [],
     tax: { tvaCollectee:0.10, isSeuil:42500, isTauxReduit:0.15, isTauxNormal:0.25, cvaeSeuil:152500, cfeAnnuelle:0 },
-    gmail: { clientId: '619844940054-8142qnegaorm7c2k3fnvnp4b9ofile0o.apps.googleusercontent.com', label: 'TPE' }
+    gmail: { clientId: '619844940054-8142qnegaorm7c2k3fnvnp4b9ofile0o.apps.googleusercontent.com', label: 'TPE' },
+    kmRate: 0.661
   };
 
   const state = {
@@ -346,6 +347,19 @@
     s.products = s.products || [];
     s.tax = s.tax || DEFAULT_SETTINGS.tax;
     s.gmail = s.gmail || DEFAULT_SETTINGS.gmail;
+    if(s.kmRate===undefined || s.kmRate===null) s.kmRate = DEFAULT_SETTINGS.kmRate;
+    const KNOWN_SUPPLIER_KM = {LX:38, XH:40, KD:96, TANG:38};
+    s.suppliers.forEach(sup=>{
+      if(sup.km===undefined && KNOWN_SUPPLIER_KM[sup.name]!==undefined) sup.km = KNOWN_SUPPLIER_KM[sup.name];
+    });
+    const KNOWN_MARKET = {'Belle Vue':{km:70,fixedDays:[3,6]}, 'Maison Rouge':{km:70,fixedDays:[2,5,0]}};
+    s.revenueSources.forEach(r=>{
+      const known = KNOWN_MARKET[r.name];
+      if(known){
+        if(r.km===undefined) r.km = known.km;
+        if(r.fixedDays===undefined) r.fixedDays = known.fixedDays;
+      }
+    });
     state.settings = s;
   }
   async function saveSettings(){ await sSet('settings', state.settings); }
@@ -883,6 +897,32 @@
   
   
   
+  function showKmPromptSheet(supplierName){
+    return new Promise((resolve)=>{
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+      back.innerHTML = `<div class="sheet" role="dialog" aria-label="Kilométrage">
+        <div class="sheet-head"><h2>Trajet vers « ${escapeHtml(supplierName)} »</h2><button class="icon-btn" data-skip>✕</button></div>
+        <div class="tax-note" style="padding:0 2px 10px;">Distance aller-retour (maison → ${escapeHtml(supplierName)} → maison), pour le calcul des frais kilométriques. Laisse vide si tu ne veux pas suivre ce trajet.</div>
+        <div class="card" style="margin-bottom:14px;">
+          <div class="field-row"><span class="field-label">Distance aller-retour</span>
+            <div class="field-input-wrap"><input class="field-input decnum" id="kmPromptInput" type="text" inputmode="decimal" placeholder="0"><span class="field-suffix">km</span></div>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="kmPromptSave" style="margin-top:0;">Enregistrer</button>
+        <button class="btn btn-ghost" id="kmPromptSkip" style="width:100%;margin-top:10px;">Ne pas suivre ce trajet</button>
+      </div>`;
+      document.body.appendChild(back);
+      function cleanup(val){ document.body.removeChild(back); resolve(val); }
+      back.querySelector('[data-skip]').addEventListener('click', ()=>cleanup(null));
+      back.querySelector('#kmPromptSkip').addEventListener('click', ()=>cleanup(null));
+      back.querySelector('#kmPromptSave').addEventListener('click', ()=>{
+        const v = Number(back.querySelector('#kmPromptInput').value);
+        cleanup(v>0 ? v : null);
+      });
+    });
+  }
+
   async function resolveSupplierFromName(supplierName, errorMessage){
     let sup = supplierName ? findMatchingSupplier(supplierName) : null;
     if(sup) return sup;
@@ -890,6 +930,8 @@
     if(!choice) return null;
     if(choice.action==='create'){
       sup = { id: uid('s'), name: choice.name };
+      const km = await showKmPromptSheet(choice.name);
+      if(km) sup.km = km;
       state.settings.suppliers.push(sup);
       await saveSettings();
       return sup;
@@ -1755,6 +1797,17 @@
     });
   }
 
+  function loadSheetJS(){
+    return new Promise((resolve, reject)=>{
+      if(window.XLSX){ resolve(window.XLSX); return; }
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      script.onload = ()=> resolve(window.XLSX);
+      script.onerror = ()=> reject(new Error('SheetJS failed to load — vérifiez votre connexion internet.'));
+      document.head.appendChild(script);
+    });
+  }
+
   /* ---------------- Gmail sync (TPE label) ---------------- */
 
   function loadGoogleIdentityServices(){
@@ -1986,6 +2039,172 @@
     openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos, includeGmail);
   }
 
+  /* ---------------- mileage (Carburant) ---------------- */
+
+  async function computeMileageCandidates(year, monthIndex){
+    const mk = year+'-'+String(monthIndex+1).padStart(2,'0');
+    const month = await getMonth(mk);
+    const daysInMonth = new Date(year, monthIndex+1, 0).getDate();
+    const candidates = [];
+    const marketSources = (state.settings.revenueSources||[]).filter(r=>r.fixedDays && r.fixedDays.length && r.km);
+    const kmSuppliers = (state.settings.suppliers||[]).filter(s=>s.km);
+    for(let d=1; d<=daysInMonth; d++){
+      const date = new Date(year, monthIndex, d);
+      const dow = date.getDay();
+      marketSources.forEach(r=>{
+        if(r.fixedDays.indexOf(dow)!==-1){
+          candidates.push({date:date, label:r.name, km:r.km, type:'market', refId:r.id});
+        }
+      });
+      const day = month.days[String(d)];
+      if(day && day.receipts && day.receipts.length){
+        const suppliersToday = {};
+        day.receipts.forEach(rc=>{ if(rc.supplierId) suppliersToday[rc.supplierId] = true; });
+        kmSuppliers.forEach(s=>{
+          if(suppliersToday[s.id]){
+            candidates.push({date:date, label:s.name, km:s.km, type:'supplier', refId:s.id});
+          }
+        });
+      }
+    }
+    candidates.sort(function(a,b){ return a.date-b.date; });
+    return candidates;
+  }
+
+  function showMileageConfirmSheet(year, monthIndex){
+    const mk = year+'-'+String(monthIndex+1).padStart(2,'0');
+    return new Promise(function(resolve){
+      (async function(){
+        let saved = await sGet('mileage:'+mk);
+        let candidates;
+        if(saved && saved.length){
+          candidates = saved.map(function(c){ return Object.assign({}, c, {date:new Date(c.date)}); });
+        } else {
+          const auto = await computeMileageCandidates(year, monthIndex);
+          candidates = auto.map(function(c){ return Object.assign({included:true}, c); });
+        }
+
+        const back = document.createElement('div');
+        back.className = 'backdrop';
+
+        function rowsHtml(){
+          if(!candidates.length) return '<div class="tax-note" style="padding:10px 2px;">Aucun trajet détecté ce mois-ci.</div>';
+          return candidates.map(function(c,i){
+            return '<label class="field-row" style="cursor:pointer;">'
+              + '<input type="checkbox" data-idx="'+i+'" class="mileageChk" '+(c.included?'checked':'')+'>'
+              + '<span style="flex:1;margin-left:8px;">'+c.date.toLocaleDateString('fr-FR')+' &middot; '+escapeHtml(c.label)+'</span>'
+              + '<span style="color:var(--muted);">'+c.km+' km</span>'
+              + '</label>';
+          }).join('');
+        }
+
+        function bindRows(){
+          back.querySelectorAll('.mileageChk').forEach(function(chk){
+            chk.addEventListener('change', function(e){
+              candidates[Number(e.target.dataset.idx)].included = e.target.checked;
+            });
+          });
+        }
+
+        back.innerHTML = '<div class="sheet" role="dialog" aria-label="Trajets du mois">'
+          + '<div class="sheet-head"><h2>Trajets du mois</h2><button class="icon-btn" data-close>\u2715</button></div>'
+          + '<div class="tax-note" style="padding:0 2px 10px;">Décoche les jours où tu n\u2019as pas fait ce trajet. Utilise le bouton ci-dessous pour ajouter ceux qui manquent.</div>'
+          + '<div id="mileageList" class="card" style="max-height:44vh;overflow-y:auto;">'+rowsHtml()+'</div>'
+          + '<button class="btn btn-ghost" id="addTripBtn" style="width:100%;margin-top:10px;">+ Ajouter un trajet</button>'
+          + '<button class="btn btn-primary" id="mileageSaveBtn" style="margin-top:14px;">Valider</button>'
+          + '</div>';
+        document.body.appendChild(back);
+        bindRows();
+
+        function close(val){ document.body.removeChild(back); resolve(val); }
+        back.querySelector('[data-close]').addEventListener('click', function(){ close(null); });
+
+        document.getElementById('addTripBtn').addEventListener('click', async function(){
+          const options = state.settings.suppliers.filter(function(s){ return s.km; })
+            .concat(state.settings.revenueSources.filter(function(r){ return r.km; }))
+            .map(function(x){ return {label:x.name+' ('+x.km+' km)', value:x.id}; });
+          if(!options.length){ alert('Aucun trajet avec une distance renseignée. Ajoute une distance dans Réglages d\u2019abord.'); return; }
+          const pickedId = await showPickerSheet('Quel trajet ?', options);
+          if(!pickedId) return;
+          const src = state.settings.suppliers.find(function(s){ return s.id===pickedId; })
+            || state.settings.revenueSources.find(function(r){ return r.id===pickedId; });
+          const dayStr = prompt('Quel jour du mois (1-'+new Date(year,monthIndex+1,0).getDate()+') ?', '1');
+          const dayNum = Number(dayStr);
+          if(!dayNum || dayNum<1) return;
+          candidates.push({date:new Date(year,monthIndex,dayNum), label:src.name, km:src.km, type:'manual', refId:src.id, included:true});
+          candidates.sort(function(a,b){ return a.date-b.date; });
+          document.getElementById('mileageList').innerHTML = rowsHtml();
+          bindRows();
+        });
+
+        document.getElementById('mileageSaveBtn').addEventListener('click', async function(){
+          await sSet('mileage:'+mk, candidates.map(function(c){ return Object.assign({}, c, {date:c.date.toISOString()}); }));
+          close(candidates.filter(function(c){ return c.included; }));
+        });
+      })();
+    });
+  }
+
+  /* ---------------- rapport comptable (Excel) ---------------- */
+
+  async function generateAccountantReport(year, monthIndex){
+    const mileage = await showMileageConfirmSheet(year, monthIndex);
+    if(mileage===null) return false;
+
+    let XLSX;
+    try{ XLSX = await loadSheetJS(); }
+    catch(e){ alert(e.message); return false; }
+
+    const mk = year+'-'+String(monthIndex+1).padStart(2,'0');
+    const month = await getMonth(mk);
+    const daysInMonth = new Date(year, monthIndex+1, 0).getDate();
+    const jours = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+    const cbSources = state.settings.revenueSources.filter(function(r){ return r.paymentType==='cb'; }).map(function(r){ return r.id; });
+    const espSources = state.settings.revenueSources.filter(function(r){ return r.paymentType==='especes'; }).map(function(r){ return r.id; });
+
+    const detailRows = [['Date','Jour','Total CB (EUR)','Total Especes (EUR)','CA Jour (EUR)']];
+    let totalCB = 0, totalESP = 0;
+    for(let d=1; d<=daysInMonth; d++){
+      const date = new Date(year, monthIndex, d);
+      const day = month.days[String(d)] || emptyDay();
+      let cb=0, esp=0;
+      cbSources.forEach(function(id){ cb += Number(day.revenue[id]||0); });
+      espSources.forEach(function(id){ esp += Number(day.revenue[id]||0); });
+      totalCB += cb; totalESP += esp;
+      detailRows.push([date, jours[date.getDay()], Number(cb.toFixed(2)), Number(esp.toFixed(2)), Number((cb+esp).toFixed(2))]);
+    }
+    detailRows.push(['TOTAL','', Number(totalCB.toFixed(2)), Number(totalESP.toFixed(2)), Number((totalCB+totalESP).toFixed(2))]);
+
+    const resumeRows = [
+      ['Indicateur','Montant'],
+      ['Total CB', Number(totalCB.toFixed(2))],
+      ['Total Especes', Number(totalESP.toFixed(2))],
+      ['CA Total du mois', Number((totalCB+totalESP).toFixed(2))]
+    ];
+
+    const kmRate = Number(state.settings.kmRate||0);
+    const totalKm = mileage.reduce(function(s,c){ return s+Number(c.km||0); }, 0);
+    const carburantRows = [['Date','Trajet','Distance (km)']];
+    mileage.forEach(function(c){ carburantRows.push([c.date, c.label, c.km]); });
+    carburantRows.push(['','Total distance (km)', totalKm]);
+    carburantRows.push(['','Taux barème (EUR/km)', kmRate]);
+    carburantRows.push(['','Total frais kilométriques (EUR)', Number((totalKm*kmRate).toFixed(2))]);
+
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.aoa_to_sheet(resumeRows);
+    const ws2 = XLSX.utils.aoa_to_sheet(detailRows);
+    const ws3 = XLSX.utils.aoa_to_sheet(carburantRows);
+    ws2['!cols'] = [{wch:13},{wch:12},{wch:16},{wch:18},{wch:14}];
+    ws3['!cols'] = [{wch:13},{wch:34},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Resume mensuel');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Detail quotidien');
+    XLSX.utils.book_append_sheet(wb, ws3, 'Carburant');
+
+    const monthLabel = MONTHS[monthIndex]+'_'+year;
+    XLSX.writeFile(wb, 'GoodAsie_rapport_'+monthLabel+'.xlsx');
+    return true;
+  }
+
   function openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos, includeGmail){
     const monthLabel = MONTHS[monthIndex]+' '+year;
     const back = document.createElement('div');
@@ -1996,6 +2215,8 @@
       <button class="btn btn-primary" id="doPrintBtn" style="margin-top:0;">📄 Ouvrir l'aperçu d'impression (PDF)</button>
       <div style="height:10px;"></div>
       <button class="btn btn-primary" id="doZipBtn" style="margin-top:0;background:var(--amber);">📦 Télécharger les photos + pièces jointes (.zip)</button>
+      <div style="height:10px;"></div>
+      <button class="btn btn-primary" id="doReportBtn" style="margin-top:0;background:var(--teal);">📊 Générer le rapport CA + Carburant (Excel)</button>
       <div class="save-confirm" id="exportSheetConfirm" style="margin-top:12px;"></div>
     </div>`;
     document.body.appendChild(back);
@@ -2005,6 +2226,18 @@
 
     document.getElementById('doPrintBtn').addEventListener('click', ()=>{
       printReport(buildReportHTML(data, includeTeam));
+    });
+    document.getElementById('doReportBtn').addEventListener('click', async ()=>{
+      const confirmEl = document.getElementById('exportSheetConfirm');
+      try{
+        const ok = await generateAccountantReport(year, monthIndex);
+        if(confirmEl){
+          if(ok){ confirmEl.textContent = '✓ Rapport Excel téléchargé'; confirmEl.style.color = 'var(--teal)'; }
+          else { confirmEl.textContent = ''; }
+        }
+      }catch(e){
+        if(confirmEl){ confirmEl.textContent = 'Erreur : '+e.message; confirmEl.style.color = 'var(--red)'; }
+      }
     });
     document.getElementById('doZipBtn').addEventListener('click', async ()=>{
       const confirmEl = document.getElementById('exportSheetConfirm');
@@ -2050,6 +2283,15 @@
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>Fournisseurs (Stock)</div>
       <div class="card" id="supList"></div>
       <div class="add-row"><input type="text" id="newSupName" placeholder="Nouveau fournisseur"><button id="addSupBtn">Ajouter</button></div>
+      <div class="tax-note" style="padding:6px 2px 10px;">Le champ "km" à côté de chaque fournisseur / source de revenu = distance aller-retour maison &#8596; là-bas, utilisée pour calculer les frais kilométriques (laisser vide si non suivi).</div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>Kilométrage</div>
+      <div class="card">
+        <div class="field-row"><span class="field-label">Taux barème kilométrique</span>
+          <div class="field-input-wrap"><input class="field-input decnum" id="kmRateInput" value="${state.settings.kmRate!=null?state.settings.kmRate:''}"><span class="field-suffix">€/km</span></div>
+        </div>
+      </div>
+      <div class="tax-note" style="padding:6px 2px 10px;">Taux publié par l'administration fiscale, dépend du véhicule — à vérifier / faire confirmer par votre comptable.</div>
 
       <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Compte</div>
       <div class="card">
@@ -2076,6 +2318,7 @@
           <option value="cb" ${s.paymentType==='cb'?'selected':''}>CB</option>
           <option value="autre" ${s.paymentType==='autre'?'selected':''}>Autre</option>
         </select>
+        <input type="text" inputmode="decimal" class="field-input" style="width:52px;flex:0 0 auto;font-size:12px;padding:5px 4px;text-align:center;" data-revkm="${s.id}" value="${s.km!=null?s.km:''}" placeholder="km" title="Distance aller-retour (km)">
         <button class="emp-remove" data-rmrev="${s.id}">×</button>
       </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune source</div>`;
       document.getElementById('expList').innerHTML = state.settings.expenseCategories.map(c=>`<div class="field-row" style="flex-wrap:wrap;gap:6px 0;">
@@ -2090,7 +2333,11 @@
         </label>
         <button class="emp-remove" data-rmexp="${c.id}">×</button>
       </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucune catégorie</div>`;
-      document.getElementById('supList').innerHTML = state.settings.suppliers.map(s=>`<div class="field-row"><span class="field-label">${escapeHtml(s.name)}</span><button class="emp-remove" data-rmsup="${s.id}">×</button></div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucun fournisseur</div>`;
+      document.getElementById('supList').innerHTML = state.settings.suppliers.map(s=>`<div class="field-row">
+        <span class="field-label" style="flex:1;">${escapeHtml(s.name)}</span>
+        <input type="text" inputmode="decimal" class="field-input" style="width:52px;flex:0 0 auto;font-size:12px;padding:5px 4px;text-align:center;" data-supkm="${s.id}" value="${s.km!=null?s.km:''}" placeholder="km" title="Distance aller-retour (km)">
+        <button class="emp-remove" data-rmsup="${s.id}">×</button>
+      </div>`).join('') || `<div style="padding:12px 14px;color:var(--muted);font-size:13px;">Aucun fournisseur</div>`;
 
       back.querySelectorAll('[data-rmrev]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.revenueSources=state.settings.revenueSources.filter(x=>x.id!==b.dataset.rmrev); await saveSettings(); renderLists(); }));
       back.querySelectorAll('[data-rmexp]').forEach(b=>b.addEventListener('click', async ()=>{ state.settings.expenseCategories=state.settings.expenseCategories.filter(x=>x.id!==b.dataset.rmexp); await saveSettings(); renderLists(); }));
@@ -2106,6 +2353,14 @@
         const r = state.settings.revenueSources.find(x=>x.id===sel.dataset.paytype);
         if(r){ r.paymentType = sel.value; await saveSettings(); }
       }));
+      back.querySelectorAll('[data-revkm]').forEach(inp=>inp.addEventListener('change', async ()=>{
+        const r = state.settings.revenueSources.find(x=>x.id===inp.dataset.revkm);
+        if(r){ const v=Number(inp.value); r.km = v>0 ? v : undefined; await saveSettings(); }
+      }));
+      back.querySelectorAll('[data-supkm]').forEach(inp=>inp.addEventListener('change', async ()=>{
+        const s = state.settings.suppliers.find(x=>x.id===inp.dataset.supkm);
+        if(s){ const v=Number(inp.value); s.km = v>0 ? v : undefined; await saveSettings(); }
+      }));
       back.querySelectorAll('[data-rmsup]').forEach(b=>b.addEventListener('click', async ()=>{
         if(!confirm('Retirer ce fournisseur ? Les produits associés resteront mais ne seront plus rattachés à un fournisseur visible.')) return;
         state.settings.suppliers=state.settings.suppliers.filter(x=>x.id!==b.dataset.rmsup); await saveSettings(); renderLists();
@@ -2115,6 +2370,11 @@
     document.getElementById('closeSettings').addEventListener('click',()=>{ document.body.removeChild(back); render(); });
     document.getElementById('companyNameInput').addEventListener('change', async (e)=>{
       state.settings.companyName = e.target.value.trim() || "Good'Asie";
+      await saveSettings();
+    });
+    document.getElementById('kmRateInput').addEventListener('change', async (e)=>{
+      const v = Number(e.target.value);
+      state.settings.kmRate = v>0 ? v : DEFAULT_SETTINGS.kmRate;
       await saveSettings();
     });
     document.getElementById('gmailClientIdInput').addEventListener('change', async (e)=>{
