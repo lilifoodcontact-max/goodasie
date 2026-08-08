@@ -221,17 +221,65 @@
 (function(){
   "use strict";
 
-  /* ---------------- storage shim (works in Claude artifacts + standalone) ---------------- */
-  if (!window.storage) {
-    window.storage = {
-      async get(key, shared){ const k=(shared?'shared:':'priv:')+key; const v=localStorage.getItem(k); if(v===null) throw new Error('not found'); return {key,value:v,shared:!!shared}; },
-      async set(key, value, shared){ const k=(shared?'shared:':'priv:')+key; localStorage.setItem(k,value); return {key,value,shared:!!shared}; },
-      async delete(key, shared){ const k=(shared?'shared:':'priv:')+key; localStorage.removeItem(k); return {key,deleted:true,shared:!!shared}; },
-      async list(prefix, shared){ const ns=shared?'shared:':'priv:'; const keys=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.indexOf(ns)===0){ const kk=k.slice(ns.length); if(!prefix||kk.indexOf(prefix)===0) keys.push(kk); } } return {keys,prefix,shared:!!shared}; }
-    };
+  /* ---------------- cloud storage (per-company, via /api/data) ---------------- */
+  /* window.storage keeps the exact same get/set/delete/list(key, shared) contract
+     as before, so none of the business logic below needs to change -- only the
+     implementation moved from localStorage to a server call, scoped to whichever
+     company is logged in (the server decides that from the session cookie, the
+     "shared" flag is accepted for compatibility but not used). */
+  const LOCAL_NS = 'priv:';
+
+  function readOldLocalData(){
+    const out = {};
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf(LOCAL_NS)===0){
+        out[k.slice(LOCAL_NS.length)] = localStorage.getItem(k);
+      }
+    }
+    return out;
   }
+
+  async function dataApi(action, payload){
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({action}, payload||{}))
+    });
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+    if(!res.ok){
+      throw new Error((data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+')'));
+    }
+    return data;
+  }
+
+  window.storage = {
+    async get(key){ const r = await dataApi('get', {key}); return {key, value:r.value, shared:false}; },
+    async set(key, value){ await dataApi('set', {key, value}); return {key, value, shared:false}; },
+    async delete(key){ await dataApi('delete', {key}); return {key, deleted:true, shared:false}; },
+    async list(prefix){ const r = await dataApi('list', {prefix}); return {keys:r.keys||[], prefix, shared:false}; }
+  };
+
   async function sGet(key){ try{ const r=await window.storage.get(key,false); return r?JSON.parse(r.value):null; }catch(e){ return null; } }
   async function sSet(key,val){ try{ await window.storage.set(key, JSON.stringify(val), false); }catch(e){ console.error('storage set failed',e); } }
+
+  /* ---------------- authentication ---------------- */
+  async function authApi(action, payload){
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({action}, payload||{}))
+    });
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+    if(!res.ok){
+      throw new Error((data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+')'));
+    }
+    return data;
+  }
 
   const DOW = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
   const MONTHS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
@@ -275,7 +323,8 @@
     tab:'today', stockView:'landing', stockLogSupplier:null, stockLogDirection:null,
     selectedDate:new Date(), settings:null, monthCache:{}, stockCache:{},
     bilanYear:new Date().getFullYear(), teamMonth:monthKeyOf(new Date()),
-    historyMonthsShown:6, taxYear:new Date().getFullYear()
+    historyMonthsShown:6, taxYear:new Date().getFullYear(),
+    authUsername:null, authCompanyName:null
   };
 
   async function loadSettings(){
@@ -428,7 +477,94 @@
   }
   function tabBtn(id,label){ return `<button class="tab-btn ${state.tab===id?'active':''}" data-tab="${id}"><svg viewBox="0 0 24 24">${iconSvg(id)}</svg>${label}</button>`; }
 
+  /* ---------------- login / signup screen ---------------- */
+  function renderAuthScreen(mode, errorMsg, notice){
+    mode = mode || 'login';
+    app.innerHTML = `
+      <div class="auth-wrap" style="max-width:380px;margin:14vh auto 0;padding:0 18px;">
+        <div style="text-align:center;margin-bottom:22px;">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;">Good'Asie</div>
+          <div style="font-size:12.5px;color:var(--muted);">Gestion interne</div>
+        </div>
+        <div class="card" style="padding:18px;">
+          <div style="display:flex;gap:6px;margin-bottom:16px;">
+            <button class="btn ${mode==='login'?'btn-primary':'btn-ghost'} btn-sm" id="authTabLogin" style="flex:1;margin:0;">Se connecter</button>
+            <button class="btn ${mode==='signup'?'btn-primary':'btn-ghost'} btn-sm" id="authTabSignup" style="flex:1;margin:0;">Créer un compte</button>
+          </div>
+          ${errorMsg ? `<div class="flag-box flag-warn" style="margin-bottom:12px;">${escapeHtml(errorMsg)}</div>` : ''}
+          ${notice ? `<div class="tax-note" style="padding:0 0 12px;">${escapeHtml(notice)}</div>` : ''}
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            ${mode==='signup' ? `<input class="text-input" id="authCompanyName" placeholder="Nom de l'entreprise">` : ''}
+            <input class="text-input" id="authUsername" placeholder="Nom d'utilisateur" autocomplete="username">
+            ${mode==='signup' ? `<input class="text-input" id="authEmail" type="email" placeholder="Email (pour retrouver le mot de passe)">` : ''}
+            <input class="text-input" id="authPassword" type="password" placeholder="Mot de passe" autocomplete="${mode==='signup'?'new-password':'current-password'}">
+          </div>
+          <button class="btn btn-primary" id="authSubmit" style="margin-top:14px;">${mode==='signup' ? 'Créer mon compte' : 'Se connecter'}</button>
+        </div>
+      </div>`;
+    document.getElementById('authTabLogin').addEventListener('click', ()=>renderAuthScreen('login'));
+    document.getElementById('authTabSignup').addEventListener('click', ()=>renderAuthScreen('signup'));
+    document.getElementById('authSubmit').addEventListener('click', ()=>submitAuth(mode));
+    app.querySelectorAll('.text-input').forEach(inp=>{
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitAuth(mode); } });
+    });
+  }
+
+  async function submitAuth(mode){
+    const username = (document.getElementById('authUsername').value||'').trim();
+    const password = document.getElementById('authPassword').value||'';
+    const btn = document.getElementById('authSubmit');
+    btn.disabled = true;
+    try{
+      let result;
+      if(mode==='signup'){
+        const companyName = (document.getElementById('authCompanyName').value||'').trim();
+        const email = (document.getElementById('authEmail').value||'').trim();
+        if(!companyName || !username || !email || !password){
+          renderAuthScreen('signup', 'Merci de remplir tous les champs.');
+          return;
+        }
+        result = await authApi('signup', {companyName, username, email, password});
+      } else {
+        if(!username || !password){
+          renderAuthScreen('login', 'Merci de remplir tous les champs.');
+          return;
+        }
+        result = await authApi('login', {username, password});
+      }
+      state.authUsername = result.username;
+      state.authCompanyName = result.companyName;
+      if(mode==='signup'){
+        const old = readOldLocalData();
+        const oldKeys = Object.keys(old);
+        if(oldKeys.length>0 && confirm('Des données existent déjà sur cet appareil (ancienne version locale). Importer ces '+oldKeys.length+' éléments dans ce nouveau compte ?')){
+          for(const k of oldKeys){ await window.storage.set(k, old[k]); }
+        }
+      }
+      state.settings = null;
+      await render();
+    }catch(e){
+      renderAuthScreen(mode, e.message||'Erreur de connexion.');
+    } finally {
+      if(btn) btn.disabled = false;
+    }
+  }
+
+  async function boot(){
+    let me;
+    try{ me = await authApi('me'); }
+    catch(e){ me = {loggedIn:false}; }
+    if(me && me.loggedIn){
+      state.authUsername = me.username;
+      state.authCompanyName = me.companyName;
+      render();
+    } else {
+      renderAuthScreen('login');
+    }
+  }
+
   async function render(){
+
     if(!state.settings) await loadSettings();
     let body='';
     if(state.tab==='today') body = await renderToday();
@@ -1915,6 +2051,13 @@
       <div class="card" id="supList"></div>
       <div class="add-row"><input type="text" id="newSupName" placeholder="Nouveau fournisseur"><button id="addSupBtn">Ajouter</button></div>
 
+      <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Compte</div>
+      <div class="card">
+        <div class="field-row"><span class="field-label">Connecté en tant que</span><span class="field-current has-val">${escapeHtml(state.authUsername||'')}</span></div>
+        <div class="field-row"><span class="field-label">Importer les données de cet appareil</span><button class="btn btn-ghost btn-sm" id="importLocalDataBtn">Importer</button></div>
+        <div class="field-row"><span class="field-label">Se déconnecter</span><button class="btn btn-ghost btn-sm" id="logoutBtn">Déconnexion</button></div>
+      </div>
+
       <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>Données</div>
       <div class="card">
         <div class="field-row"><span class="field-label">Exporter une sauvegarde (JSON)</span><button class="btn btn-ghost btn-sm" id="exportBtn">Exporter</button></div>
@@ -1987,6 +2130,27 @@
     document.getElementById('addRevBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newRevSrc'); const v=inp.value.trim(); if(!v) return; state.settings.revenueSources.push({id:uid('r'),name:v,paymentType:'cb'}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addExpBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newExpCat'); const v=inp.value.trim(); if(!v) return; state.settings.expenseCategories.push({id:uid('c'),name:v,vatRate:0,linksSupplier:false,declaredByDefault:true}); await saveSettings(); inp.value=''; renderLists(); });
     document.getElementById('addSupBtn').addEventListener('click', async ()=>{ const inp=document.getElementById('newSupName'); const v=inp.value.trim(); if(!v) return; state.settings.suppliers.push({id:uid('s'),name:v}); await saveSettings(); inp.value=''; renderLists(); });
+
+    document.getElementById('importLocalDataBtn').addEventListener('click', async ()=>{
+      const old = readOldLocalData();
+      const oldKeys = Object.keys(old);
+      if(oldKeys.length===0){ alert('Aucune donnée locale trouvée sur cet appareil.'); return; }
+      if(!confirm('Importer '+oldKeys.length+' éléments trouvés sur cet appareil vers ce compte ? Les données existantes du compte seront écrasées en cas de même clé.')) return;
+      try{
+        for(const k of oldKeys){ await window.storage.set(k, old[k]); }
+        state.monthCache = {}; state.stockCache = {}; state.settings = null;
+        document.body.removeChild(back);
+        await render();
+        alert('✓ Import terminé.');
+      }catch(e){ alert('Erreur pendant l’import : '+e.message); }
+    });
+    document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+      if(!confirm('Se déconnecter ?')) return;
+      try{ await authApi('logout'); }catch(e){}
+      state.authUsername = null; state.authCompanyName = null; state.settings = null;
+      document.body.removeChild(back);
+      renderAuthScreen('login');
+    });
 
     document.getElementById('exportBtn').addEventListener('click', async ()=>{
       const out = { settings: state.settings, months:{}, stock:{} };
@@ -2062,7 +2226,7 @@
     }
   });
 
-  render();
+  boot();
 })();
 </script>
 </body>
