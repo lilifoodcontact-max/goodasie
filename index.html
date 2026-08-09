@@ -2271,6 +2271,35 @@
     }
     detailRows.push(['TOTAL','', Number(totalCB.toFixed(2)), Number(totalESP.toFixed(2)), Number((totalCB+totalESP).toFixed(2))]);
 
+    const ticketRows = [['Date','Source','Montant (EUR)','Origine']];
+    for(let d=1; d<=daysInMonth; d++){
+      const date = new Date(year, monthIndex, d);
+      const day = month.days[String(d)] || emptyDay();
+      const coveredBySource = {};
+      (day.receipts||[]).forEach(function(rc){
+        if(rc.kind!=='revenue') return;
+        const src = state.settings.revenueSources.find(function(s){ return s.id===rc.sourceId; });
+        const srcName = src ? src.name : (rc.sourceId||'?');
+        if(rc.lineItems && rc.lineItems.length){
+          rc.lineItems.forEach(function(amt){
+            ticketRows.push([date, srcName, Number(Number(amt).toFixed(2)), 'Ticket CB (scan IA)']);
+          });
+        } else {
+          ticketRows.push([date, srcName, Number(Number(rc.amount||0).toFixed(2)), 'Ticket (scan)']);
+        }
+        coveredBySource[rc.sourceId] = Number(coveredBySource[rc.sourceId]||0) + Number(rc.amount||0);
+      });
+      state.settings.revenueSources.forEach(function(src){
+        const total = Number(day.revenue[src.id]||0);
+        const covered = Number(coveredBySource[src.id]||0);
+        const diff = Number((total-covered).toFixed(2));
+        if(diff > 0.004){
+          ticketRows.push([date, src.name, diff, 'Saisie manuelle']);
+        }
+      });
+    }
+    ticketRows.push(['','TOTAL', Number((totalCB+totalESP).toFixed(2)), '']);
+
     const resumeRows = [
       ['Indicateur','Montant'],
       ['Total CB', Number(totalCB.toFixed(2))],
@@ -2289,11 +2318,14 @@
     const wb = XLSX.utils.book_new();
     const ws1 = XLSX.utils.aoa_to_sheet(resumeRows);
     const ws2 = XLSX.utils.aoa_to_sheet(detailRows);
+    const ws2b = XLSX.utils.aoa_to_sheet(ticketRows);
     const ws3 = XLSX.utils.aoa_to_sheet(carburantRows);
     ws2['!cols'] = [{wch:13},{wch:12},{wch:16},{wch:18},{wch:14}];
+    ws2b['!cols'] = [{wch:13},{wch:16},{wch:16},{wch:20}];
     ws3['!cols'] = [{wch:13},{wch:34},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws1, 'Resume mensuel');
     XLSX.utils.book_append_sheet(wb, ws2, 'Detail quotidien');
+    XLSX.utils.book_append_sheet(wb, ws2b, 'Detail des tickets');
     XLSX.utils.book_append_sheet(wb, ws3, 'Carburant');
 
     const monthLabel = MONTHS[monthIndex]+'_'+year;
