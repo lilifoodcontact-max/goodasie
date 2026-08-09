@@ -678,7 +678,7 @@
       </div>
       <div class="section-title-row">
         <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>Revenus</div>
-        <button class="cam-btn" id="camRevenuBtn" aria-label="Photographier un ticket de vente">${svgWrap('cam')}</button>
+        <button class="cam-btn" id="camRevenuBtn" aria-label="Photographier des tickets CB" title="Pose les tickets côte à côte, sans les superposer, avec le montant bien visible">${svgWrap('cam')}</button>
       </div>
       <div class="card">${revRows}</div>
       <div class="section-title-row">
@@ -1038,6 +1038,95 @@
     render();
   }
 
+  async function recognizeReceiptAmounts(dataUrl){
+    const parts = dataUrlParts(dataUrl);
+    if(!parts) return { amounts: [], errorMessage: 'Photo invalide.' };
+    try{
+      const res = await fetch('/api/recognize-receipts', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ image: parts.base64, mimeType: parts.mimeType })
+      });
+      let data = null;
+      try{ data = await res.json(); }catch(e){ data = null; }
+      if(!res.ok){
+        const msg = (data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+').');
+        return { amounts: [], errorMessage: msg };
+      }
+      const amounts = (data && Array.isArray(data.amounts)) ? data.amounts.filter(function(n){ return typeof n==='number' && n>0; }) : [];
+      return { amounts: amounts, errorMessage: null };
+    }catch(e){
+      console.error('recognizeReceiptAmounts failed', e);
+      return { amounts: [], errorMessage: 'Connexion au serveur impossible : '+(e && e.message ? e.message : e) };
+    }
+  }
+
+  function showReceiptAmountsSheet(photoDataUrl, sourceName, initialAmounts, errorMessage){
+    return new Promise(function(resolve){
+      let amounts = (initialAmounts||[]).slice();
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+
+      function rowsHtml(){
+        if(!amounts.length) return '<div class="tax-note" style="padding:8px 2px;">Aucun montant pour l\u2019instant. Ajoute-en un ci-dessous.</div>';
+        return amounts.map(function(a,i){
+          return '<div class="field-row"><input type="text" inputmode="decimal" class="field-input decnum" data-idx="'+i+'" value="'+a.toFixed(2)+'" style="max-width:110px;">'
+            + '<span style="margin-left:6px;">\u20ac</span>'
+            + '<button class="emp-remove" data-rm="'+i+'" style="margin-left:auto;">\u00d7</button></div>';
+        }).join('');
+      }
+      function totalText(){
+        const total = amounts.reduce(function(s,a){ return s+a; }, 0);
+        return fmtMoney(total);
+      }
+      function bindRows(){
+        back.querySelectorAll('[data-idx]').forEach(function(inp){
+          inp.addEventListener('change', function(e){
+            const v = Number(e.target.value);
+            amounts[Number(e.target.dataset.idx)] = v>0 ? v : 0;
+            document.getElementById('receiptTotal').textContent = totalText();
+          });
+        });
+        back.querySelectorAll('[data-rm]').forEach(function(btn){
+          btn.addEventListener('click', function(e){
+            amounts.splice(Number(e.target.dataset.rm), 1);
+            document.getElementById('receiptRows').innerHTML = rowsHtml();
+            bindRows();
+            document.getElementById('receiptTotal').textContent = totalText();
+          });
+        });
+      }
+
+      back.innerHTML = '<div class="sheet" role="dialog" aria-label="Montants">'
+        + '<div class="sheet-head"><h2>Tickets \u2014 '+escapeHtml(sourceName)+'</h2><button class="icon-btn" data-cancel>\u2715</button></div>'
+        + (errorMessage
+            ? '<div class="tax-note" style="padding:0 2px 8px;color:var(--red);">Erreur de reconnaissance : '+escapeHtml(errorMessage)+'. Ajoute les montants manuellement ci-dessous.</div>'
+            : '<div class="tax-note" style="padding:0 2px 8px;">Vérifie les montants lus par l\u2019IA, corrige ou complète si besoin.</div>')
+        + (photoDataUrl ? '<img src="'+photoDataUrl+'" class="photo-thumb">' : '')
+        + '<div id="receiptRows" class="card">'+rowsHtml()+'</div>'
+        + '<button class="btn btn-ghost" id="addAmountBtn" style="width:100%;margin-top:10px;">+ Ajouter un montant</button>'
+        + '<div class="receipt-line receipt-total" style="margin-top:14px;"><span>Total</span><span id="receiptTotal">'+totalText()+'</span></div>'
+        + '<button class="btn btn-primary" id="receiptSaveBtn" style="margin-top:14px;">Enregistrer</button>'
+        + '</div>';
+      document.body.appendChild(back);
+      bindRows();
+
+      function cleanup(val){ document.body.removeChild(back); resolve(val); }
+      back.querySelector('[data-cancel]').addEventListener('click', function(){ cleanup(null); });
+      document.getElementById('addAmountBtn').addEventListener('click', function(){
+        amounts.push(0);
+        document.getElementById('receiptRows').innerHTML = rowsHtml();
+        bindRows();
+        document.getElementById('receiptTotal').textContent = totalText();
+      });
+      document.getElementById('receiptSaveBtn').addEventListener('click', function(){
+        const clean = amounts.filter(function(a){ return a>0; });
+        if(!clean.length){ alert('Ajoute au moins un montant.'); return; }
+        cleanup(clean);
+      });
+    });
+  }
+
   async function startRevenuePhotoFlow(){
     const photo = await capturePhoto();
     if(!photo) return;
@@ -1045,16 +1134,23 @@
     const sourceId = await showPickerSheet('Quelle source de revenu ?', srcOptions);
     if(!sourceId) return;
     const source = state.settings.revenueSources.find(s=>s.id===sourceId);
-    const amount = await showAmountConfirmSheet(photo, source.name, null);
-    if(!amount) return;
+
+    const hideLoading = showLoadingOverlay('Lecture des tickets par l\u2019IA…');
+    let result;
+    try{ result = await recognizeReceiptAmounts(photo); }
+    finally{ hideLoading(); }
+
+    const amounts = await showReceiptAmountsSheet(photo, source.name, result.amounts, result.errorMessage);
+    if(!amounts) return;
+    const total = Number(amounts.reduce((s,a)=>s+a, 0).toFixed(2));
 
     const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
     const month = await getMonth(mk);
     if(!month.days[dk]) month.days[dk] = emptyDay();
     const day = month.days[dk];
     if(!day.receipts) day.receipts = [];
-    day.revenue[sourceId] = Number(day.revenue[sourceId]||0) + amount;
-    day.receipts.push({ id: uid('rc'), kind:'revenue', amount, sourceId, photo, ts: Date.now() });
+    day.revenue[sourceId] = Number(day.revenue[sourceId]||0) + total;
+    day.receipts.push({ id: uid('rc'), kind:'revenue', amount: total, sourceId, photo, lineItems: amounts, ts: Date.now() });
     await saveMonth(mk);
     render();
   }
