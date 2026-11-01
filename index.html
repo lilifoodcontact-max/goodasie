@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Good'Asie — Gestion</title>
+<title>LILIFOOD — Gestion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -152,7 +152,9 @@
 
   .chart-card { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:16px 14px 8px; }
   .bars { display:flex; align-items:flex-end; gap:5px; height:120px; margin-top:4px; }
-  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:2px; }
+  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:2px; cursor:pointer; border-radius:8px; padding:3px 0 2px; }
+  .bar-col.sel { background:var(--teal-dim); }
+  .bar-col.sel .bar-m-label { color:var(--ink); font-weight:700; }
   .bar-pair { display:flex; align-items:flex-end; gap:2px; height:100%; width:100%; justify-content:center; }
   .bar { width:40%; border-radius:3px 3px 0 0; min-height:2px; }
   .bar.rev { background:var(--teal); }
@@ -222,11 +224,6 @@
   "use strict";
 
   /* ---------------- cloud storage (per-company, via /api/data) ---------------- */
-  /* window.storage keeps the exact same get/set/delete/list(key, shared) contract
-     as before, so none of the business logic below needs to change -- only the
-     implementation moved from localStorage to a server call, scoped to whichever
-     company is logged in (the server decides that from the session cookie, the
-     "shared" flag is accepted for compatibility but not used). */
   const LOCAL_NS = 'priv:';
 
   function readOldLocalData(){
@@ -242,15 +239,16 @@
 
   async function dataApi(action, payload){
     const res = await fetch('/api/data', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {'Content-Type':'application/json'},
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify(Object.assign({action}, payload||{}))
     });
     let data = null;
     try{ data = await res.json(); }catch(e){ data = null; }
     if(!res.ok){
-      throw new Error((data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+')'));
+      const err = new Error((data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+')'));
+      err.status = res.status;
+      throw err;
     }
     return data;
   }
@@ -262,8 +260,20 @@
     async list(prefix){ const r = await dataApi('list', {prefix}); return {keys:r.keys||[], prefix, shared:false}; }
   };
 
-  async function sGet(key){ try{ const r=await window.storage.get(key,false); return r?JSON.parse(r.value):null; }catch(e){ return null; } }
-  async function sSet(key,val){ try{ await window.storage.set(key, JSON.stringify(val), false); }catch(e){ console.error('storage set failed',e); } }
+  async function sGet(key){
+    for(let i=0;i<2;i++){
+      try{
+        const r = await window.storage.get(key,false);
+        return (r && r.value!=null && r.value!=='') ? JSON.parse(r.value) : null;
+      }catch(e){
+        if(e && e.status===404) return null;
+        if(i===1) throw e;
+      }
+    }
+  }
+  async function sSet(key,val){
+    await window.storage.set(key, JSON.stringify(val,(k,v)=>(k==='photo'||k==='_hyd')?undefined:v), false);
+  }
 
   /* ---------------- authentication ---------------- */
   async function authApi(action, payload){
@@ -294,7 +304,7 @@
 
   /* ---------------- default settings ---------------- */
   const DEFAULT_SETTINGS = {
-    companyName: "Good'Asie",
+    companyName: "LILIFOOD",
     revenueSources: [
       {id:'r1',name:'Espèces',paymentType:'especes'},
       {id:'r2',name:'Belle Vue',paymentType:'cb',km:70,fixedDays:[3,6]},
@@ -323,9 +333,9 @@
   const state = {
     tab:'today', stockView:'landing', stockLogSupplier:null, stockLogDirection:null,
     selectedDate:new Date(), settings:null, monthCache:{}, stockCache:{},
-    bilanYear:new Date().getFullYear(), teamMonth:monthKeyOf(new Date()),
+    bilanYear:new Date().getFullYear(), bilanMonth:null, teamMonth:monthKeyOf(new Date()),
     historyMonthsShown:6, taxYear:new Date().getFullYear(),
-    authUsername:null, authCompanyName:null
+    authUsername:null, authCompanyName:null, _exporting:false
   };
 
   async function loadSettings(){
@@ -336,7 +346,7 @@
     s.employees = s.employees || DEFAULT_SETTINGS.employees;
     s.suppliers = s.suppliers || DEFAULT_SETTINGS.suppliers;
     s.companyName = s.companyName || DEFAULT_SETTINGS.companyName;
-    
+
     s.revenueSources.forEach(r=>{
       if(!r.paymentType){
         r.paymentType = /esp[eè]ce|cash|especes/i.test(r.name) ? 'especes' : 'cb';
@@ -364,14 +374,43 @@
   }
   async function saveSettings(){ await sSet('settings', state.settings); }
 
+  /* ---------------- photos stockées séparément ---------------- */
+  const photoCache = {};
+  async function storePhoto(dataUrl){
+    const id = uid('ph');
+    await sSet('photo:'+id, dataUrl);
+    photoCache[id] = dataUrl;
+    return id;
+  }
+  async function loadPhoto(id){
+    if(photoCache[id]) return photoCache[id];
+    const v = await sGet('photo:'+id);
+    if(v) photoCache[id] = v;
+    return v;
+  }
+  async function hydrateMonth(m){
+    const jobs = [];
+    Object.values(m.days||{}).forEach(dd=>(dd.receipts||[]).forEach(r=>{
+      if(!r.photo && r.photoId) jobs.push(loadPhoto(r.photoId).then(p=>{ if(p) r.photo=p; }).catch(()=>{}));
+    }));
+    await Promise.all(jobs);
+    m._hyd = true;
+  }
   async function getMonth(mk){
-    if(state.monthCache[mk]) return state.monthCache[mk];
-    let m = await sGet('month:'+mk);
-    if(!m) m = { days:{} };
-    state.monthCache[mk] = m;
+    let m = state.monthCache[mk];
+    if(!m){ m = (await sGet('month:'+mk)) || { days:{} }; state.monthCache[mk] = m; }
+    if(!m._hyd && (state._exporting || !['bilan','fiscal','team'].includes(state.tab))) await hydrateMonth(m);
     return m;
   }
-  async function saveMonth(mk){ await sSet('month:'+mk, state.monthCache[mk]); }
+  async function saveMonth(mk){
+    const m = state.monthCache[mk];
+    try{
+      for(const dd of Object.values(m.days||{})){
+        for(const r of (dd.receipts||[])){ if(r.photo && !r.photoId) r.photoId = await storePhoto(r.photo); }
+      }
+      await sSet('month:'+mk, m);
+    }catch(e){ delete state.monthCache[mk]; throw e; }
+  }
 
   function emptyDay(){ return { revenue:{}, expenses:{}, attendance:[], receipts:[] }; }
   function dayTotals(day, settings){
@@ -431,15 +470,28 @@
 
   async function getStock(supplierId, mk){
     const key = supplierId+':'+mk;
-    if(state.stockCache[key]) return state.stockCache[key];
-    let m = await sGet('stock:'+key);
-    if(!m) m = { entree:[], sortie:[] };
-    state.stockCache[key] = m;
+    let m = state.stockCache[key];
+    if(!m){ m = (await sGet('stock:'+key)) || { entree:[], sortie:[] }; state.stockCache[key] = m; }
+    if(!m._hyd && ((state.tab==='stock' && state.stockView==='log') || state._exporting)){
+      const jobs = [];
+      ['entree','sortie'].forEach(dir=>(m[dir]||[]).forEach(x=>{
+        if(!x.photo && x.photoId) jobs.push(loadPhoto(x.photoId).then(p=>{ if(p) x.photo=p; }).catch(()=>{}));
+      }));
+      await Promise.all(jobs);
+      m._hyd = true;
+    }
     return m;
   }
-  async function saveStock(supplierId, mk){ await sSet('stock:'+supplierId+':'+mk, state.stockCache[supplierId+':'+mk]); }
+  async function saveStock(supplierId, mk){
+    const k = supplierId+':'+mk, m = state.stockCache[k];
+    try{
+      for(const dir of ['entree','sortie']){
+        for(const x of (m[dir]||[])){ if(x.photo && !x.photoId) x.photoId = await storePhoto(x.photo); }
+      }
+      await sSet('stock:'+k, m);
+    }catch(e){ delete state.stockCache[k]; throw e; }
+  }
 
-  
   async function getAllStockForSupplier(supplierId){
     const list = await window.storage.list('stock:'+supplierId+':', false).catch(()=>({keys:[]}));
     const keys = (list && list.keys) || [];
@@ -497,7 +549,7 @@
     app.innerHTML = `
       <div class="auth-wrap" style="max-width:380px;margin:14vh auto 0;padding:0 18px;">
         <div style="text-align:center;margin-bottom:22px;">
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;">Good'Asie</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;">LILIFOOD</div>
           <div style="font-size:12.5px;color:var(--muted);">Gestion interne</div>
         </div>
         <div class="card" style="padding:18px;">
@@ -578,14 +630,22 @@
   }
 
   async function render(){
-
-    if(!state.settings) await loadSettings();
     let body='';
-    if(state.tab==='today') body = await renderToday();
-    else if(state.tab==='stock') body = await renderStock();
-    else if(state.tab==='team') body = await renderTeam();
-    else if(state.tab==='bilan') body = await renderBilan();
-    else if(state.tab==='fiscal') body = await renderFiscal();
+    try{
+      if(!state.settings) await loadSettings();
+      if(/^good.?asie$/i.test(state.settings.companyName||'')){ state.settings.companyName='LILIFOOD'; await saveSettings(); }
+      if(state.tab==='today') body = await renderToday();
+      else if(state.tab==='stock') body = await renderStock();
+      else if(state.tab==='team') body = await renderTeam();
+      else if(state.tab==='bilan') body = await renderBilan();
+      else if(state.tab==='fiscal') body = await renderFiscal();
+    }catch(e){
+      console.error(e);
+      if(e && e.status===401){ renderAuthScreen('login','Session expirée — reconnecte-toi. Tes données sont toujours sur le serveur.'); return; }
+      app.innerHTML = `<div style="padding:60px 24px;text-align:center;"><div style="font-size:15px;font-weight:600;margin-bottom:8px;">Impossible de charger les données</div><div class="tax-note" style="padding:0 0 16px;">${escapeHtml(e.message||'Erreur réseau')}<br>Rien n’a été modifié.</div><button class="btn btn-primary" id="retryLoad">Réessayer</button></div>`;
+      document.getElementById('retryLoad').addEventListener('click',()=>{ state.settings=null; state.monthCache={}; state.stockCache={}; render(); });
+      return;
+    }
 
     app.innerHTML = `
       <div class="topbar">
@@ -789,19 +849,14 @@
       back.addEventListener('click', e=>{ if(e.target===back) cleanup(null); });
     });
   }
-  /* ---------------- AI : reconnaissance de facture (fournisseur) ---------------- */
 
+  /* ---------------- AI : reconnaissance de facture (fournisseur) ---------------- */
   function dataUrlParts(dataUrl){
     const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl||'');
     if(!m) return null;
     return { mimeType: m[1], base64: m[2] };
   }
 
-  
-  
-  
-  
-  
   async function recognizeInvoiceSupplier(dataUrl){
     const parts = dataUrlParts(dataUrl);
     if(!parts) return { supplierName: null, amount: null, errorMessage: 'Photo invalide.' };
@@ -830,8 +885,6 @@
     return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
   }
 
-  
-  
   function findMatchingSupplier(name){
     const n = normalizeName(name);
     if(!n) return null;
@@ -855,8 +908,6 @@
     return ()=>{ if(back.parentNode) document.body.removeChild(back); };
   }
 
-  
-  
   function showNewSupplierSheet(suggestedName, errorMessage){
     return new Promise((resolve)=>{
       const back = document.createElement('div');
@@ -894,9 +945,6 @@
     });
   }
 
-  
-  
-  
   function showKmPromptSheet(supplierName){
     return new Promise((resolve)=>{
       const back = document.createElement('div');
@@ -942,26 +990,29 @@
     return state.settings.suppliers.find(s=>s.id===pickedId) || null;
   }
 
-  
-  
-  
-  
+  function showToast(msg){
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.cssText = 'position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:60;padding:12px 18px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,0.18);max-width:90%;text-align:center;';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(()=>{ if(el.parentNode) el.parentNode.removeChild(el); }, 4000);
+  }
+
   async function startInvoiceScanFlow(){
     const photo = await capturePhoto();
-    if(!photo) return;
+    if(!photo){ showToast('Aucune photo — rien enregistré'); return; }
     const hideLoading = showLoadingOverlay('Lecture de la facture par l\u2019IA…');
     let result;
     try{ result = await recognizeInvoiceSupplier(photo); }
     finally{ hideLoading(); }
-
     const supplier = await resolveSupplierFromName(result.supplierName, result.errorMessage);
-    if(!supplier) return; 
-
+    if(!supplier){ showToast('Annulé : aucun fournisseur choisi — rien enregistré'); return; }
     const achatsCat = state.settings.expenseCategories.find(c=>c.id==='c8')
       || state.settings.expenseCategories.find(c=>c.linksSupplier);
-    const amount = await showAmountConfirmSheet(photo, achatsCat ? achatsCat.name : 'Achats', supplier.name, result.amount);
-    if(!amount) return;
-
+    if(!achatsCat){ alert('Catégorie « Achats » introuvable. Cochez "fournisseur" sur une catégorie dans Réglages.'); return; }
+    const amount = await showAmountConfirmSheet(photo, achatsCat.name, supplier.name, result.amount);
+    if(!amount){ showToast('Annulé : montant non confirmé — rien enregistré'); return; }
     const d = state.selectedDate, mk = monthKeyOf(d), dk = String(d.getDate());
     const month = await getMonth(mk);
     if(!month.days[dk]) month.days[dk] = emptyDay();
@@ -970,17 +1021,8 @@
     day.expenses[achatsCat.id] = Number(day.expenses[achatsCat.id]||0) + amount;
     day.receipts.push({ id: uid('rc'), kind:'expense', amount, catId: achatsCat.id, supplierId: supplier.id, photo, ts: Date.now() });
     await saveMonth(mk);
-    showToast('Facture enregistrée dans Achats · '+supplier.name);
+    showToast('✓ '+fmtMoney(amount)+' → '+achatsCat.name+' · '+supplier.name+' · '+d.getDate()+' '+MONTHS[d.getMonth()]+' (voir onglet Aujourd\u2019hui)');
     render();
-  }
-
-  function showToast(msg){
-    const el = document.createElement('div');
-    el.className = 'card';
-    el.style.cssText = 'position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;padding:12px 18px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,0.18);';
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(()=>{ if(el.parentNode) el.parentNode.removeChild(el); }, 2200);
   }
 
   function showAmountConfirmSheet(photoDataUrl, categoryName, supplierName, prefillAmount){
@@ -1159,7 +1201,7 @@
     const d = state.selectedDate, dk = String(d.getDate());
     const day = state._todayDay || emptyDay();
     const receipts = (day.receipts||[]).filter(r=>{
-      const rk = r.kind || 'expense'; 
+      const rk = r.kind || 'expense';
       return rk===kind && (kind==='revenue' ? r.sourceId===key : r.catId===key);
     });
     const label = kind==='revenue'
@@ -1567,11 +1609,11 @@
   }
 
   async function renderBilan(){
+    state._exporting = false;
     const y = state.bilanYear;
     const monthlyData = [];
     for(let m=0;m<12;m++){
-      const mk = y+'-'+pad(m+1);
-      const month = await getMonth(mk);
+      const month = await getMonth(y+'-'+pad(m+1));
       let rev=0, exp=0;
       Object.values(month.days).forEach(day=>{ const t=dayTotals(day,state.settings); rev+=t.rev; exp+=t.exp; });
       monthlyData.push({m,rev,exp});
@@ -1581,10 +1623,19 @@
     const solde = yearRev-yearExp;
     const marge = yearRev>0 ? solde/yearRev : 0;
     const maxVal = Math.max(1, ...monthlyData.map(x=>Math.max(x.rev,x.exp)));
+    const nowD = new Date();
+    const sel = (state.bilanMonth!=null) ? state.bilanMonth : (y===nowD.getFullYear() ? nowD.getMonth() : 11);
     const bars = monthlyData.map(x=>{
       const revH=Math.round((x.rev/maxVal)*100), expH=Math.round((x.exp/maxVal)*100);
-      return `<div class="bar-col"><div class="bar-pair"><div class="bar rev" style="height:${revH}%"></div><div class="bar exp" style="height:${expH}%"></div></div><div class="bar-m-label">${MONTHS[x.m].slice(0,3)}</div></div>`;
+      return `<div class="bar-col ${x.m===sel?'sel':''}" data-bm="${x.m}"><div class="bar-pair"><div class="bar rev" style="height:${revH}%"></div><div class="bar exp" style="height:${expH}%"></div></div><div class="bar-m-label">${MONTHS[x.m].slice(0,3)}</div></div>`;
     }).join('');
+    const sm = monthlyData[sel], sSolde = sm.rev-sm.exp, sMarge = sm.rev>0 ? sSolde/sm.rev : 0;
+    const prevM = sel>0 ? monthlyData[sel-1] : null;
+    const delta = (cur, prv)=>{
+      if(!prv || prv<=0) return '';
+      const p = (cur-prv)/prv*100;
+      return ` <span style="font-size:10.5px;color:var(--muted);">(${p>=0?'+':''}${p.toFixed(0)} % vs ${MONTHS[sel-1].slice(0,3)})</span>`;
+    };
 
     const stockSummary = await computeStockSummary();
     const stockValue = stockSummary.totalValue;
@@ -1606,6 +1657,15 @@
       <div class="chart-card"><div class="bars">${bars}</div>
         <div class="legend"><span><i style="background:var(--teal)"></i>Revenus</span><span><i style="background:var(--red);opacity:.75"></i>Dépenses</span></div>
       </div>
+      <div class="tax-note" style="padding:6px 2px 0;text-align:center;">Touchez un mois pour voir le détail</div>
+      <div class="receipt" style="margin-top:12px;">
+        <div class="receipt-title">${MONTHS[sel]} ${y}</div>
+        <div class="receipt-line"><span>Revenus</span><span style="color:var(--teal);font-weight:600;">${fmtMoney(sm.rev)}${delta(sm.rev, prevM&&prevM.rev)}</span></div>
+        <div class="receipt-line"><span>Dépenses</span><span style="color:var(--red);font-weight:600;">${fmtMoney(sm.exp)}${delta(sm.exp, prevM&&prevM.exp)}</span></div>
+        <hr class="receipt-divider">
+        <div class="receipt-line receipt-total"><span>Solde</span><span class="val ${sSolde>=0?'pos':'neg'}">${fmtMoneySigned(sSolde)}</span></div>
+        <div class="receipt-line muted"><span>Marge</span><span>${fmtPct(sMarge)}</span></div>
+      </div>
 
       <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>📦 Stock intégré au bilan</div>
       <div class="tax-note" style="padding:0 2px 8px;">Le stock final est ajouté séparément — le pourcentage indique quelle part du total est du stock non vendu, pas du profit réalisé.</div>
@@ -1623,9 +1683,17 @@
     `;
   }
   function bindBilan(){
-    document.getElementById('yearPrev').addEventListener('click',()=>{ state.bilanYear--; render(); });
-    document.getElementById('yearNext').addEventListener('click',()=>{ state.bilanYear++; render(); });
-    document.getElementById('exportMonthBtn').addEventListener('click', openExportFlow);
+    document.getElementById('yearPrev').addEventListener('click',()=>{ state.bilanYear--; state.bilanMonth=null; render(); });
+    document.getElementById('yearNext').addEventListener('click',()=>{ state.bilanYear++; state.bilanMonth=null; render(); });
+    document.getElementById('exportMonthBtn').addEventListener('click',()=>{ state._exporting=true; openExportFlow(); });
+    document.querySelectorAll('.bar-col[data-bm]').forEach(col=>{
+      col.addEventListener('click', async ()=>{
+        const yPos = window.scrollY;
+        state.bilanMonth = Number(col.dataset.bm);
+        await render();
+        window.scrollTo(0, yPos);
+      });
+    });
   }
 
   /* ================= FISCAL ================= */
@@ -1634,7 +1702,6 @@
     const { rev: yearRev, solde } = await annualTotals(y);
     const tax = state.settings.tax;
 
-    
     let totalDed = 0;
     const catRows = [];
     for(const c of state.settings.expenseCategories){
@@ -1659,7 +1726,7 @@
     }
     const cvaeDue = yearRev > tax.cvaeSeuil;
     const cfe = Number(tax.cfeAnnuelle||0);
-    const totalProvisions = tvaNette + isEstime + (cvaeDue?0:0) + cfe; 
+    const totalProvisions = tvaNette + isEstime + (cvaeDue?0:0) + cfe;
     const couvert = solde >= totalProvisions;
 
     return `
@@ -1738,13 +1805,10 @@
     bindNum('taxCfe','cfeAnnuelle');
   }
 
-  /* ================= SETTINGS ================= */
   /* ================= EXPORT COMPTABLE (PDF + ZIP) ================= */
 
   function getDaysInMonth(year, monthIndex){ return new Date(year, monthIndex+1, 0).getDate(); }
 
-  
-  
   function safeFilenamePart(str){
     return String(str||'x').trim().replace(/[\/\\:*?"<>|]+/g, '-').replace(/\s+/g, '-') || 'x';
   }
@@ -1810,7 +1874,6 @@
       rows.push({ day, especes, cb, autres, revTotal, catsAmt, expTotal, solde:revTotal-expTotal });
     }
 
-    
     const empStats = {};
     s.employees.forEach(e=>empStats[e.id]={name:e.name,days:0,total:0});
     Object.values(month.days).forEach(dayObj=>{
@@ -1917,7 +1980,7 @@
     });
   }
 
-  let _gmailAccessToken = null; 
+  let _gmailAccessToken = null;
 
   function getGmailAccessToken(forceConsent){
     return new Promise(async (resolve, reject)=>{
@@ -1949,8 +2012,6 @@
 
   function base64UrlToBase64(s){ return s.replace(/-/g,'+').replace(/_/g,'/'); }
 
-  
-  
   async function fetchGmailTpeAttachments(year, monthIndex){
     const accessToken = await getGmailAccessToken();
     const headers = { Authorization: 'Bearer '+accessToken };
@@ -2050,9 +2111,6 @@
     if(includeGmail){
       try{
         const attachments = await fetchGmailTpeAttachments(year, monthIndex);
-        
-        
-        
         const resolvedByName = {};
         for(const att of attachments){
           if((att.mimeType||'').toLowerCase() !== 'application/pdf') continue;
@@ -2093,7 +2151,6 @@
   }
 
   async function openExportFlow(){
-    
     const now = new Date();
     const monthOptions = [];
     for(let i=0;i<12;i++){
@@ -2105,7 +2162,6 @@
     const [yy, mm] = mk.split('-').map(Number);
     const year = yy, monthIndex = mm-1;
 
-    
     const catItems = state.settings.expenseCategories.map(c=>({ label:c.name, value:c.id, checked:!!c.declaredByDefault }));
     catItems.push({ label:'Inclure le résumé Équipe (jours travaillés, salaires)', value:'__equipe__', checked:true });
     const selected = await showChecklistSheet('Que faut-il inclure dans le PDF ?', catItems,
@@ -2114,9 +2170,6 @@
     const includeTeam = selected.includes('__equipe__');
     const selectedCatIds = selected.filter(v=>v!=='__equipe__');
 
-    
-    
-    
     const photoItems = [
       ...state.settings.revenueSources.map(r=>({ label:'Recettes — '+r.name, value:'rev:'+r.id, checked:true })),
       { label:'Stock — toutes les entrées/sorties photographiées', value:'__stock__', checked:true },
@@ -2129,8 +2182,6 @@
     const includeStockPhotos = selectedPhoto.includes('__stock__');
     const includeGmail = selectedPhoto.includes('__gmail__');
 
-    
-    
     const data = await buildMonthlyReportData(year, monthIndex, selectedCatIds);
     openExportResultSheet(data, year, monthIndex, selectedCatIds, includeTeam, selectedRevenueIds, includeStockPhotos, includeGmail);
   }
@@ -2329,7 +2380,7 @@
     XLSX.utils.book_append_sheet(wb, ws3, 'Carburant');
 
     const monthLabel = MONTHS[monthIndex]+'_'+year;
-    XLSX.writeFile(wb, 'GoodAsie_rapport_'+monthLabel+'.xlsx');
+    XLSX.writeFile(wb, 'LILIFOOD_rapport_'+monthLabel+'.xlsx');
     return true;
   }
 
@@ -2379,6 +2430,7 @@
     });
   }
 
+  /* ================= SETTINGS ================= */
   function openSettings(){
     const back = document.createElement('div');
     back.className='backdrop';
@@ -2433,7 +2485,7 @@
         <div class="field-row"><span class="field-label">Exporter une sauvegarde (JSON)</span><button class="btn btn-ghost btn-sm" id="exportBtn">Exporter</button></div>
         <div class="field-row"><span class="field-label">Importer une sauvegarde (JSON)</span><button class="btn btn-ghost btn-sm" id="importBtn">Importer</button></div>
       </div>
-      <div class="tax-note" style="padding:6px 2px 10px;">Utile quand vous changez d'appareil ou d'adresse (ex : après un déménagement de GitHub Pages vers Vercel) — exportez depuis l'ancien, importez ici sur le nouveau.</div>
+      <div class="tax-note" style="padding:6px 2px 10px;">Utile quand vous changez d'appareil ou d'adresse (ex : après un déménagement de GitHub Pages vers Vercel) — exportez depuis l'ancien, importez ici sur le nouveau. La sauvegarde inclut les photos.</div>
       <input type="file" id="importFileInput" accept=".json" style="display:none;">
     </div>`;
     document.body.appendChild(back);
@@ -2497,7 +2549,7 @@
     renderLists();
     document.getElementById('closeSettings').addEventListener('click',()=>{ document.body.removeChild(back); render(); });
     document.getElementById('companyNameInput').addEventListener('change', async (e)=>{
-      state.settings.companyName = e.target.value.trim() || "Good'Asie";
+      state.settings.companyName = e.target.value.trim() || "LILIFOOD";
       await saveSettings();
     });
     document.getElementById('kmRateInput').addEventListener('change', async (e)=>{
@@ -2507,7 +2559,7 @@
     });
     document.getElementById('gmailClientIdInput').addEventListener('change', async (e)=>{
       state.settings.gmail.clientId = e.target.value.trim();
-      _gmailAccessToken = null; 
+      _gmailAccessToken = null;
       await saveSettings();
     });
     document.getElementById('gmailLabelInput').addEventListener('change', async (e)=>{
@@ -2536,21 +2588,27 @@
       if(!confirm('Se déconnecter ?')) return;
       try{ await authApi('logout'); }catch(e){}
       state.authUsername = null; state.authCompanyName = null; state.settings = null;
+      state.monthCache = {}; state.stockCache = {};
       document.body.removeChild(back);
       renderAuthScreen('login');
     });
 
     document.getElementById('exportBtn').addEventListener('click', async ()=>{
-      const out = { settings: state.settings, months:{}, stock:{} };
+      const out = { settings: state.settings, months:{}, stock:{}, photos:{} };
       try{
         const list = await window.storage.list('month:', false);
         for(const k of (list.keys||[])){ const r=await window.storage.get(k,false); if(r) out.months[k]=JSON.parse(r.value); }
         const slist = await window.storage.list('stock:', false);
         for(const k of (slist.keys||[])){ const r=await window.storage.get(k,false); if(r) out.stock[k]=JSON.parse(r.value); }
-      }catch(e){ console.error(e); }
-      const blob = new Blob([JSON.stringify(out,null,2)], {type:'application/json'});
+        const plist = await window.storage.list('photo:', false);
+        for(const k of (plist.keys||[])){ const r=await window.storage.get(k,false); if(r && r.value) out.photos[k]=r.value; }
+      }catch(e){
+        console.error(e);
+        alert('⚠️ La sauvegarde est incomplète : '+(e.message||e));
+      }
+      const blob = new Blob([JSON.stringify(out)], {type:'application/json'});
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='good-asie-sauvegarde-'+dateKey(new Date())+'.json';
+      const a = document.createElement('a'); a.href=url; a.download='lilifood-sauvegarde-'+dateKey(new Date())+'.json';
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     });
 
@@ -2559,27 +2617,32 @@
     });
     document.getElementById('importFileInput').addEventListener('change', async (e)=>{
       const file = e.target.files[0];
-      e.target.value = ''; 
+      e.target.value = '';
       if(!file) return;
       let data;
       try{
         const text = await file.text();
         data = JSON.parse(text);
       }catch(err){ alert('Ce fichier ne ressemble pas à une sauvegarde valide (JSON illisible).'); return; }
-      if(!data || !data.settings){ alert('Ce fichier ne ressemble pas à une sauvegarde Good’Asie valide.'); return; }
+      if(!data || !data.settings){ alert('Ce fichier ne ressemble pas à une sauvegarde valide.'); return; }
 
       const nMonths = Object.keys(data.months||{}).length;
       const nStock = Object.keys(data.stock||{}).length;
+      const nPhotos = Object.keys(data.photos||{}).length;
       const ok = confirm(
         `Importer cette sauvegarde ?\n\n`+
         `• Réglages (sources, catégories, employés, fournisseurs, taxes)\n`+
         `• ${nMonths} mois de données quotidiennes\n`+
-        `• ${nStock} mois de mouvements de stock\n\n`+
+        `• ${nStock} mois de mouvements de stock\n`+
+        `• ${nPhotos} photos\n\n`+
         `Cela remplacera les données actuellement présentes ici pour ces mêmes clés. Cette action ne peut pas être annulée.`
       );
       if(!ok) return;
 
       try{
+        for(const [key, value] of Object.entries(data.photos||{})){
+          await window.storage.set(key, value, false);
+        }
         await sSet('settings', data.settings);
         for(const [key, value] of Object.entries(data.months||{})){
           await window.storage.set(key, JSON.stringify(value), false);
@@ -2589,21 +2652,15 @@
         }
       }catch(err){ alert('Erreur pendant l’import : '+err.message); return; }
 
-      
       state.monthCache = {};
       state.stockCache = {};
       state.settings = null;
       document.body.removeChild(back);
-      await loadSettings();
-      render();
+      await render();
       alert('✓ Sauvegarde importée avec succès.');
     });
   }
 
-  
-  
-  
-  
   document.body.addEventListener('input', (e)=>{
     if(e.target && e.target.classList && e.target.classList.contains('decnum')){
       if(e.target.value.indexOf(',')!==-1){
@@ -2611,6 +2668,19 @@
         e.target.value = e.target.value.replace(',', '.');
         if(pos!=null) e.target.setSelectionRange(pos, pos);
       }
+    }
+  });
+
+  /* ---------------- toute erreur de sauvegarde est signalée ---------------- */
+  window.addEventListener('unhandledrejection',(e)=>{
+    const r = e.reason || {};
+    console.error(r);
+    if(r.status===401){
+      alert('⚠️ Session expirée : les dernières données n’ont peut-être PAS été enregistrées.\n\nReconnecte-toi (Réglages → Déconnexion, puis connexion).');
+    } else if(r.status){
+      alert('⚠️ Les dernières données n’ont peut-être PAS été enregistrées.\n\n'+(r.message||String(r)));
+    } else {
+      showToast('⚠️ Erreur : '+(r.message||String(r)));
     }
   });
 
