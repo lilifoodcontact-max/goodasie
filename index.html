@@ -2686,6 +2686,164 @@
 
   boot();
 })();
+</script><script>
+(function(){
+  "use strict";
+  const KEY = 'ticketcfg';
+  const MENU = [['gyoza poulet',6],['gyoza legume',5],['petit bao',5],['gua bao',7],['tempurra crevette',6],['karrage poulet',6],['samousa',1],['nem porc',1],['nem crevette',1],['yakitori',7.5],['nem poulet',1],['teriyaki poulet',11],['RIZ canar',12.5],['udon',4.5],['riz cotonnais',4.5],['riz composé',12.5],['soup de ravioli',5],['tarte au porc',6]].map((p,i)=>({id:'m'+(i+1),name:p[0],price:p[1]}));
+  const HEAD = {name:'LI LI', line1:'3 RUE SUZANNE', line2:'91560 CROSNE', siret:'Siret 998 964 688 R.C.S. Evry'};
+  const esc = s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const eur = n=>(Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+
+  let cfg = null, rate = 0.10, lines = [{id:'',q:''}], mode = 'ticket', back = null;
+
+  async function load(){
+    try{ const r = await window.storage.get(KEY); cfg = (r && r.value) ? JSON.parse(r.value) : null; }catch(e){ cfg = null; }
+    if(!cfg) cfg = {menu:MENU.map(x=>Object.assign({},x)), header:Object.assign({},HEAD), next:1};
+    try{
+      const r = await window.storage.get('settings');
+      const s = (r && r.value) ? JSON.parse(r.value) : null;
+      if(s && s.tax && s.tax.tvaCollectee!=null) rate = Number(s.tax.tvaCollectee);
+    }catch(e){}
+  }
+  async function save(){ await window.storage.set(KEY, JSON.stringify(cfg)); }
+
+  function calc(){
+    let ttc = 0; const rows = [];
+    lines.forEach(l=>{
+      const m = cfg.menu.find(x=>x.id===l.id); if(!m) return;
+      const q = (l.q===''||l.q==null) ? 1 : (Number(l.q)||0);
+      rows.push({name:m.name, q, price:m.price, tot:q*m.price}); ttc += q*m.price;
+    });
+    ttc = Number(ttc.toFixed(2));
+    const ht = Number((ttc/(1+rate)).toFixed(2));
+    return {rows, ttc, ht, tva:Number((ttc-ht).toFixed(2))};
+  }
+
+  function ticketHtml(c, no){
+    const h = cfg.header, hr = '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
+    const ln = (a,b,bold)=>`<div style="display:flex;justify-content:space-between;gap:6px;${bold?'font-weight:700;font-size:13px;':''}"><span>${a}</span><span>${b}</span></div>`;
+    return `<div style="width:76mm;margin:0 auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#000;">
+      <div style="text-align:center;font-weight:700;font-size:13px;">Ticket Caisse</div>
+      <div style="text-align:center;margin-top:6px;"><b>${esc(h.name)}</b><br>${esc(h.line1)}<br>${esc(h.line2)}<br>${esc(h.siret)}</div>
+      <div style="margin-top:8px;">Date : ${new Date().toLocaleDateString('fr-FR')}<br>N° Ticket : ${no}</div>${hr}
+      ${c.rows.map(r=>ln(esc(r.name)+' ×'+r.q+' @ '+eur(r.price), eur(r.tot))).join('')}${hr}
+      ${ln('TOTAL HT', eur(c.ht))}${ln('TVA ('+(rate*100).toFixed(2).replace('.',',')+' %)', eur(c.tva))}${ln('TOTAL TTC', eur(c.ttc), true)}
+      <div style="text-align:center;margin-top:10px;">Merci de votre visite</div></div>`;
+  }
+
+  function totals(){
+    const c = calc(), el = back.querySelector('#tkTot'); if(!el) return;
+    el.innerHTML = `<div class="receipt-line"><span>Total HT</span><span>${eur(c.ht)}</span></div>
+      <div class="receipt-line muted"><span>TVA (${(rate*100).toFixed(1)} %)</span><span>${eur(c.tva)}</span></div>
+      <hr class="receipt-divider"><div class="receipt-line receipt-total"><span>Total TTC</span><span class="val pos">${eur(c.ttc)}</span></div>`;
+  }
+
+  function view(){
+    if(mode==='menu') return viewMenu();
+    back.innerHTML = `<div class="sheet"><div class="sheet-head"><h2>🧾 Ticket caisse</h2><button class="icon-btn" id="tkX">✕</button></div>
+      <div class="card">
+        <div class="field-row"><span class="field-label">N° ticket</span><input class="field-input" id="tkNo" inputmode="numeric" value="${cfg.next}"></div>
+        <div class="field-row"><span class="field-label">Taux de TVA <span style="color:var(--muted);font-size:11px;">(réglé dans Fiscal)</span></span><span>${(rate*100).toFixed(1)} %</span></div>
+      </div>
+      <div class="section-title">Produits</div>
+      <div class="card">${lines.map((l,i)=>`<div class="field-row" style="gap:6px;">
+        <select class="field-select" data-sel="${i}" style="flex:1;min-width:0;"><option value="">— Produit —</option>
+          ${cfg.menu.map(m=>`<option value="${m.id}" ${m.id===l.id?'selected':''}>${esc(m.name)} · ${eur(m.price)}</option>`).join('')}</select>
+        <input class="field-input" style="width:52px;" inputmode="decimal" data-q="${i}" value="${l.q}" placeholder="1">
+        <button class="emp-remove" data-del="${i}">×</button></div>`).join('')}</div>
+      <div class="receipt" id="tkTot" style="margin-top:16px;"></div>
+      <button class="btn btn-primary" id="tkPrint" style="margin-top:0;">🖨️ Imprimer / PDF</button>
+      <button class="btn btn-ghost" id="tkNew" style="width:100%;margin-top:10px;">Nouveau ticket (vider)</button>
+      <button class="btn btn-ghost" id="tkMenu" style="width:100%;margin-top:10px;">⚙️ Produits & en-tête</button>
+      <div class="tax-note">Prix considérés TTC ; HT et TVA sont déduits du total.</div></div>`;
+    totals();
+    back.querySelector('#tkX').onclick = closeIt;
+    back.querySelectorAll('[data-sel]').forEach(el=>el.onchange = ()=>{
+      const i = Number(el.dataset.sel); lines[i].id = el.value;
+      if(el.value && i===lines.length-1) lines.push({id:'',q:''});
+      view();
+    });
+    back.querySelectorAll('[data-q]').forEach(el=>el.oninput = ()=>{
+      el.value = el.value.replace(',','.'); lines[Number(el.dataset.q)].q = el.value; totals();
+    });
+    back.querySelectorAll('[data-del]').forEach(el=>el.onclick = ()=>{
+      lines.splice(Number(el.dataset.del),1);
+      if(!lines.length || lines[lines.length-1].id) lines.push({id:'',q:''});
+      view();
+    });
+    back.querySelector('#tkNew').onclick = ()=>{ lines = [{id:'',q:''}]; view(); };
+    back.querySelector('#tkMenu').onclick = ()=>{ mode='menu'; view(); };
+    back.querySelector('#tkPrint').onclick = async ()=>{
+      const c = calc();
+      if(!c.rows.length){ alert('Ajoute au moins un produit.'); return; }
+      const noEl = back.querySelector('#tkNo');
+      const no = Number(noEl.value) || cfg.next;
+      const st = document.createElement('style');
+      st.textContent = '@page{size:portrait;margin:6mm}';
+      document.head.appendChild(st);
+      const done = ()=>{ if(st.parentNode) st.parentNode.removeChild(st); window.removeEventListener('afterprint', done); };
+      window.addEventListener('afterprint', done);
+      document.getElementById('printArea').innerHTML = ticketHtml(c, no);
+      window.print();
+      cfg.next = no+1; noEl.value = cfg.next;
+      try{ await save(); }catch(e){ alert('Numéro de ticket non enregistré : '+e.message); }
+    };
+  }
+
+  function viewMenu(){
+    back.innerHTML = `<div class="sheet"><div class="sheet-head"><h2>Produits & en-tête</h2><button class="icon-btn" id="tkX">✕</button></div>
+      <button class="btn btn-ghost btn-sm" id="tkBack" style="margin-bottom:10px;">‹ Retour au ticket</button>
+      <div class="section-title" style="margin-top:0;">En-tête du ticket</div>
+      <div class="card">${[['name','Nom'],['line1','Adresse'],['line2','CP / Ville'],['siret','Siret']].map(h=>
+        `<div class="field-row"><span class="field-label">${h[1]}</span><input class="text-input" style="max-width:210px;" data-h="${h[0]}" value="${esc(cfg.header[h[0]]||'')}"></div>`).join('')}</div>
+      <div class="section-title">Produits (prix TTC)</div>
+      <div class="card">${cfg.menu.map(m=>`<div class="field-row" style="gap:6px;">
+        <input class="text-input" data-mn="${m.id}" value="${esc(m.name)}">
+        <input class="field-input" style="width:64px;flex:0 0 auto;" inputmode="decimal" data-mp="${m.id}" value="${m.price}">
+        <button class="emp-remove" data-md="${m.id}">×</button></div>`).join('')}
+        <div class="add-row"><input id="nmName" placeholder="Nouveau produit"><input id="nmPrice" inputmode="decimal" placeholder="Prix TTC" style="max-width:90px;"><button id="nmAdd">Ajouter</button></div>
+      </div></div>`;
+    const num = v=>Number(String(v).replace(',','.'))||0;
+    back.querySelector('#tkX').onclick = closeIt;
+    back.querySelector('#tkBack').onclick = ()=>{ mode='ticket'; view(); };
+    back.querySelectorAll('[data-h]').forEach(el=>el.onchange = ()=>{ cfg.header[el.dataset.h] = el.value.trim(); save(); });
+    back.querySelectorAll('[data-mn]').forEach(el=>el.onchange = ()=>{ const m = cfg.menu.find(x=>x.id===el.dataset.mn); if(m && el.value.trim()){ m.name = el.value.trim(); save(); } });
+    back.querySelectorAll('[data-mp]').forEach(el=>el.onchange = ()=>{ const m = cfg.menu.find(x=>x.id===el.dataset.mp); if(m){ m.price = num(el.value); save(); } });
+    back.querySelectorAll('[data-md]').forEach(el=>el.onclick = ()=>{
+      cfg.menu = cfg.menu.filter(x=>x.id!==el.dataset.md);
+      lines.forEach(l=>{ if(l.id===el.dataset.md) l.id=''; });
+      save(); viewMenu();
+    });
+    back.querySelector('#nmAdd').onclick = ()=>{
+      const name = back.querySelector('#nmName').value.trim(); if(!name) return;
+      cfg.menu.push({id:'m'+Date.now(), name, price:num(back.querySelector('#nmPrice').value)});
+      save(); viewMenu();
+    };
+  }
+
+  function closeIt(){ if(back && back.parentNode) back.parentNode.removeChild(back); back = null; }
+
+  async function openIt(){
+    try{ await load(); }
+    catch(e){ alert('Impossible de charger : '+e.message); return; }
+    mode = 'ticket';
+    back = document.createElement('div');
+    back.className = 'backdrop';
+    back.addEventListener('click', e=>{ if(e.target===back) closeIt(); });
+    document.body.appendChild(back);
+    view();
+  }
+
+  const fab = document.createElement('button');
+  fab.textContent = '🧾 Ticket';
+  fab.style.cssText = 'position:fixed;right:14px;bottom:78px;z-index:30;background:var(--teal);color:#fff;border:none;border-radius:24px;padding:11px 16px;font:600 13px Inter,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:none;';
+  fab.addEventListener('click', openIt);
+  document.body.appendChild(fab);
+  setInterval(()=>{
+    fab.style.display = (document.querySelector('.tabbar-inner') && !document.querySelector('.backdrop')) ? 'block' : 'none';
+  }, 700);
+})();
 </script>
 </body>
 </html>
