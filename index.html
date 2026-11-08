@@ -2844,6 +2844,144 @@
     fab.style.display = (document.querySelector('.tabbar-inner') && !document.querySelector('.backdrop')) ? 'block' : 'none';
   }, 700);
 })();
+</script><script>
+/* ===== FACTURE — module autonome ===== */
+(function(){
+  "use strict";
+  const KEY='facturecfg';
+  const SELLER={name:'LILI',form:'SAS à associé unique',capital:'2 000 €',addr:'3 Rue Suzanne, 91560 Crosne',rcs:'998 964 688 R.C.S. Evry',tva:''};
+  const TERMS="Pas d’escompte pour paiement anticipé. En cas de retard de paiement : pénalités égales à 3 fois le taux d’intérêt légal et indemnité forfaitaire de recouvrement de 40 €.";
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const r2=n=>Math.round((n+Number.EPSILON)*100)/100;
+  const eur=n=>(Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const fd=s=>new Date(s+'T12:00:00').toLocaleDateString('fr-FR');
+  let cfg=null,menu=[],rate=0.10,inv=null,mode='inv',back=null;
+
+  async function load(){
+    try{const r=await window.storage.get(KEY);cfg=(r&&r.value)?JSON.parse(r.value):null;}catch(e){cfg=null;}
+    if(!cfg)cfg={next:1,seller:Object.assign({},SELLER),terms:TERMS};
+    try{const r=await window.storage.get('ticketcfg');const t=(r&&r.value)?JSON.parse(r.value):null;if(t&&t.menu)menu=t.menu;}catch(e){}
+    try{const r=await window.storage.get('settings');const s=(r&&r.value)?JSON.parse(r.value):null;if(s&&s.tax&&s.tax.tvaCollectee!=null)rate=Number(s.tax.tvaCollectee);}catch(e){}
+    if(!inv)newInv();
+  }
+  function newInv(){
+    const now=new Date();
+    inv={no:'F-'+now.getFullYear()+'-'+String(cfg.next).padStart(4,'0'),date:iso(now),days:'0',pay:'Virement',cust:{name:'',addr:'',siren:''},lines:[{id:'',q:''}]};
+  }
+  async function save(){await window.storage.set(KEY,JSON.stringify(cfg));}
+
+  function calc(){
+    const rows=[];let ht=0;
+    inv.lines.forEach(l=>{
+      const m=menu.find(x=>x.id===l.id);if(!m)return;
+      const q=(l.q===''||l.q==null)?1:(Number(l.q)||0);
+      const line=r2(q*m.price/(1+rate));ht+=line;
+      rows.push({name:m.name,q,pu:r2(m.price/(1+rate)),ht:line});
+    });
+    ht=r2(ht);const tva=r2(ht*rate);
+    return {rows,ht,tva,ttc:r2(ht+tva)};
+  }
+  function setK(k,v){const p=k.split('.');let o=inv;while(p.length>1)o=o[p.shift()];o[p[0]]=v;}
+
+  function invHtml(c){
+    const s=cfg.seller,cu=inv.cust,days=Number(inv.days)||0;
+    const due=new Date(inv.date+'T12:00:00');due.setDate(due.getDate()+days);
+    const th='style="border:1px solid #999;padding:5px;background:#eee;text-align:right;"',td='style="border:1px solid #999;padding:5px;text-align:right;"';
+    return `<div style="font-family:Inter,Arial,sans-serif;font-size:12px;color:#000;max-width:180mm;margin:0 auto;">
+      <div style="display:flex;justify-content:space-between;gap:20px;">
+        <div><b style="font-size:16px;">${esc(s.name)}</b><br>${esc(s.form)} au capital de ${esc(s.capital)}<br>${esc(s.addr)}<br>RCS ${esc(s.rcs)}${s.tva?'<br>N° TVA : '+esc(s.tva):''}</div>
+        <div style="text-align:right;"><b style="font-size:22px;">FACTURE</b><br>N° ${esc(inv.no)}<br>Date : ${fd(inv.date)}</div>
+      </div>
+      <div style="margin:20px 0;padding:8px 10px;border:1px solid #999;width:60%;"><b>Client</b><br>${esc(cu.name)||'—'}<br>${esc(cu.addr)}${cu.siren?'<br>SIREN : '+esc(cu.siren):''}</div>
+      <table style="border-collapse:collapse;width:100%;"><thead><tr><th ${th} style="border:1px solid #999;padding:5px;background:#eee;text-align:left;">Désignation</th><th ${th}>Qté</th><th ${th}>PU HT</th><th ${th}>TVA</th><th ${th}>Total HT</th></tr></thead><tbody>
+      ${c.rows.map(r=>`<tr><td style="border:1px solid #999;padding:5px;">${esc(r.name)}</td><td ${td}>${r.q}</td><td ${td}>${eur(r.pu)}</td><td ${td}>${(rate*100).toFixed(1).replace('.',',')} %</td><td ${td}>${eur(r.ht)}</td></tr>`).join('')}
+      </tbody></table>
+      <table style="margin:12px 0 0 auto;border-collapse:collapse;min-width:60mm;">
+        <tr><td style="padding:3px 8px;">Total HT</td><td style="padding:3px 8px;text-align:right;">${eur(c.ht)}</td></tr>
+        <tr><td style="padding:3px 8px;">TVA (${(rate*100).toFixed(1).replace('.',',')} %)</td><td style="padding:3px 8px;text-align:right;">${eur(c.tva)}</td></tr>
+        <tr><td style="padding:3px 8px;border-top:2px solid #000;"><b>Total TTC</b></td><td style="padding:3px 8px;text-align:right;border-top:2px solid #000;"><b>${eur(c.ttc)}</b></td></tr>
+      </table>
+      <div style="margin-top:22px;">Mode de paiement : ${esc(inv.pay)}<br>Date d’échéance : ${days>0?due.toLocaleDateString('fr-FR'):'à réception'}</div>
+      <div style="margin-top:10px;font-size:10.5px;color:#333;">${esc(cfg.terms)}</div>
+    </div>`;
+  }
+
+  function totals(){
+    const c=calc(),el=back.querySelector('#fTot');if(!el)return;
+    el.innerHTML=`<div class="receipt-line"><span>Total HT</span><span>${eur(c.ht)}</span></div>
+      <div class="receipt-line muted"><span>TVA (${(rate*100).toFixed(1)} %)</span><span>${eur(c.tva)}</span></div>
+      <hr class="receipt-divider"><div class="receipt-line receipt-total"><span>Total TTC</span><span class="val pos">${eur(c.ttc)}</span></div>`;
+  }
+
+  function view(){
+    if(mode==='seller')return viewSeller();
+    const F=(label,k,val,extra)=>`<div class="field-row"><span class="field-label">${label}</span><input class="text-input" style="max-width:200px;" data-k="${k}" value="${esc(val)}" ${extra||''}></div>`;
+    back.innerHTML=`<div class="sheet"><div class="sheet-head"><h2>📄 Facture</h2><button class="icon-btn" id="fX">✕</button></div>
+      <div class="card">${F('N° facture','no',inv.no)}${F('Date','date',inv.date,'type="date"')}${F('Délai de paiement (jours)','days',inv.days,'inputmode="numeric"')}
+        <div class="field-row"><span class="field-label">Mode de paiement</span><select class="field-select" style="max-width:200px;" data-k="pay">${['Virement','Carte bancaire','Espèces','Chèque'].map(p=>`<option ${p===inv.pay?'selected':''}>${p}</option>`).join('')}</select></div></div>
+      <div class="section-title">Client</div>
+      <div class="card">${F('Nom / société','cust.name',inv.cust.name)}${F('Adresse','cust.addr',inv.cust.addr)}${F('SIREN (si société)','cust.siren',inv.cust.siren)}</div>
+      <div class="section-title">Produits</div>
+      <div class="card">${menu.length?inv.lines.map((l,i)=>`<div class="field-row" style="gap:6px;">
+        <select class="field-select" data-sel="${i}" style="flex:1;min-width:0;"><option value="">— Produit —</option>${menu.map(m=>`<option value="${m.id}" ${m.id===l.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select>
+        <input class="field-input" style="width:52px;" inputmode="decimal" data-q="${i}" value="${l.q}" placeholder="1">
+        <button class="emp-remove" data-del="${i}">×</button></div>`).join(''):'<div style="padding:14px;color:var(--muted);font-size:13px;">Aucun produit : ouvre d’abord « 🧾 Ticket » une fois pour charger la liste.</div>'}</div>
+      <div class="receipt" id="fTot" style="margin-top:16px;"></div>
+      <button class="btn btn-primary" id="fPrint" style="margin-top:0;">🖨️ Imprimer / PDF</button>
+      <button class="btn btn-ghost" id="fNew" style="width:100%;margin-top:10px;">Nouvelle facture (vider)</button>
+      <button class="btn btn-ghost" id="fSeller" style="width:100%;margin-top:10px;">⚙️ Mon entreprise (TVA, mentions)</button></div>`;
+    totals();
+    back.querySelector('#fX').onclick=closeIt;
+    back.querySelectorAll('[data-k]').forEach(el=>{el.oninput=el.onchange=()=>setK(el.dataset.k,el.value);});
+    back.querySelectorAll('[data-sel]').forEach(el=>el.onchange=()=>{const i=Number(el.dataset.sel);inv.lines[i].id=el.value;if(el.value&&i===inv.lines.length-1)inv.lines.push({id:'',q:''});view();});
+    back.querySelectorAll('[data-q]').forEach(el=>el.oninput=()=>{el.value=el.value.replace(',','.');inv.lines[Number(el.dataset.q)].q=el.value;totals();});
+    back.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{inv.lines.splice(Number(el.dataset.del),1);if(!inv.lines.length||inv.lines[inv.lines.length-1].id)inv.lines.push({id:'',q:''});view();});
+    back.querySelector('#fNew').onclick=()=>{newInv();view();};
+    back.querySelector('#fSeller').onclick=()=>{mode='seller';view();};
+    back.querySelector('#fPrint').onclick=async()=>{
+      const c=calc();
+      if(!c.rows.length){alert('Ajoute au moins un produit.');return;}
+      if(!inv.cust.name.trim()&&!confirm('Aucun nom de client. Imprimer quand même ?'))return;
+      if(!cfg.seller.tva&&!confirm('Ton n° de TVA intracommunautaire n’est pas renseigné (⚙️ Mon entreprise). Imprimer quand même ?'))return;
+      const st=document.createElement('style');st.textContent='@page{size:A4 portrait;margin:12mm}';document.head.appendChild(st);
+      const done=()=>{if(st.parentNode)st.parentNode.removeChild(st);window.removeEventListener('afterprint',done);};
+      window.addEventListener('afterprint',done);
+      document.getElementById('printArea').innerHTML=invHtml(c);
+      window.print();
+      const m=/(\d+)\s*$/.exec(inv.no);if(m)cfg.next=parseInt(m[1],10)+1;
+      try{await save();}catch(e){alert('Numéro non enregistré : '+e.message);}
+      newInv();view();
+    };
+  }
+
+  function viewSeller(){
+    const s=cfg.seller;
+    back.innerHTML=`<div class="sheet"><div class="sheet-head"><h2>Mon entreprise</h2><button class="icon-btn" id="fX">✕</button></div>
+      <button class="btn btn-ghost btn-sm" id="fBack" style="margin-bottom:10px;">‹ Retour à la facture</button>
+      <div class="card">${[['name','Nom'],['form','Forme juridique'],['capital','Capital'],['addr','Adresse du siège'],['rcs','RCS'],['tva','N° TVA intracom. (FR…)']].map(f=>`<div class="field-row"><span class="field-label">${f[1]}</span><input class="text-input" style="max-width:210px;" data-s="${f[0]}" value="${esc(s[f[0]])}"></div>`).join('')}
+      <div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px;"><span class="field-label">Mentions de bas de page</span><textarea class="text-input" id="fTerms" rows="4">${esc(cfg.terms)}</textarea></div></div></div>`;
+    back.querySelector('#fX').onclick=closeIt;
+    back.querySelector('#fBack').onclick=()=>{mode='inv';view();};
+    back.querySelectorAll('[data-s]').forEach(el=>el.onchange=()=>{cfg.seller[el.dataset.s]=el.value.trim();save();});
+    back.querySelector('#fTerms').onchange=e=>{cfg.terms=e.target.value.trim();save();};
+  }
+
+  function closeIt(){if(back&&back.parentNode)back.parentNode.removeChild(back);back=null;}
+  async function openIt(){
+    try{await load();}catch(e){alert('Impossible de charger : '+e.message);return;}
+    mode='inv';back=document.createElement('div');back.className='backdrop';
+    back.addEventListener('click',e=>{if(e.target===back)closeIt();});
+    document.body.appendChild(back);view();
+  }
+
+  const fab=document.createElement('button');
+  fab.textContent='📄 Facture';
+  fab.style.cssText='position:fixed;right:14px;bottom:128px;z-index:30;background:var(--amber);color:#fff;border:none;border-radius:24px;padding:11px 16px;font:600 13px Inter,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;display:none;';
+  fab.addEventListener('click',openIt);
+  document.body.appendChild(fab);
+  setInterval(()=>{fab.style.display=(document.querySelector('.tabbar-inner')&&!document.querySelector('.backdrop'))?'block':'none';},700);
+})();
 </script>
 </body>
 </html>
