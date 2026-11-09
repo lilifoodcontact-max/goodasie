@@ -3098,6 +3098,98 @@
   document.body.appendChild(fab);
   setInterval(()=>{fab.style.display=(document.querySelector('.tabbar-inner')&&!document.querySelector('.backdrop'))?'block':'none';},700);
 })();
-</script>
+</script><script>
+/* ===== GMAIL FACTURES v2 — module autonome ===== */
+(function(){
+  "use strict";
+  Array.from(document.querySelectorAll('button')).forEach(b=>{if(b.textContent==='📧 Gmail')b.remove();});
+  let tok=null,back=null;
+  const safe=s=>String(s||'x').replace(/[\/\\:*?"<>|\r\n]+/g,'-').replace(/\s+/g,' ').trim().slice(0,80)||'x';
+  const loadScript=(src,test)=>new Promise((res,rej)=>{
+    if(test()){res();return;}
+    const s=document.createElement('script');s.src=src;s.onload=res;
+    s.onerror=()=>rej(new Error('Chargement impossible : '+src));document.head.appendChild(s);
+  });
+  const bytes=b=>{const s=atob(b.replace(/-/g,'+').replace(/_/g,'/'));const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;};
+  const text=b=>new TextDecoder('utf-8').decode(bytes(b));
+
+  async function getToken(){
+    if(tok)return tok;
+    await loadScript('https://accounts.google.com/gsi/client',()=>window.google&&google.accounts&&google.accounts.oauth2);
+    const r=await window.storage.get('settings');
+    const s=(r&&r.value)?JSON.parse(r.value):null;
+    const id=s&&s.gmail&&s.gmail.clientId;
+    if(!id)throw new Error('Client ID Google manquant (voir Réglages).');
+    return new Promise((res,rej)=>{
+      google.accounts.oauth2.initTokenClient({client_id:id,scope:'https://www.googleapis.com/auth/gmail.readonly',
+        callback:x=>{if(x.error)rej(new Error('Connexion Google refusée : '+x.error));else{tok=x.access_token;res(tok);}}
+      }).requestAccessToken();
+    });
+  }
+  async function g(path){
+    const r=await fetch('https://www.googleapis.com/gmail/v1/users/me/'+path,{headers:{Authorization:'Bearer '+tok}});
+    if(r.status===401){tok=null;throw new Error('Session Google expirée, relance le téléchargement.');}
+    if(!r.ok)throw new Error('Erreur Gmail '+r.status);
+    return r.json();
+  }
+  function walk(p,o){
+    o=o||{att:[],html:'',plain:''};
+    if(p.body&&p.body.attachmentId&&(p.filename||/pdf|octet|xml|image/i.test(p.mimeType||'')))o.att.push(p);
+    else if(p.mimeType==='text/html'&&p.body&&p.body.data&&!o.html)o.html=text(p.body.data);
+    else if(p.mimeType==='text/plain'&&p.body&&p.body.data&&!o.plain)o.plain=text(p.body.data);
+    (p.parts||[]).forEach(x=>walk(x,o));
+    return o;
+  }
+
+  async function run(ym,say){
+    const y=Number(ym.split('-')[0]),m=Number(ym.split('-')[1]);
+    const a=y+'/'+String(m).padStart(2,'0')+'/01',e=new Date(y,m,1);
+    const b=e.getFullYear()+'/'+String(e.getMonth()+1).padStart(2,'0')+'/01';
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',()=>window.JSZip);
+    say('Connexion à Gmail…');await getToken();
+    const q=encodeURIComponent('(facture OR invoice) after:'+a+' before:'+b);
+    let ids=[],pt='';
+    do{const l=await g('messages?maxResults=100&q='+q+(pt?'&pageToken='+pt:''));ids=ids.concat(l.messages||[]);pt=l.nextPageToken||'';}while(pt);
+    if(!ids.length)return 0;
+    const zip=new JSZip(),idx=[['Date','De','Objet','Fichier']];let n=0;
+    for(let i=0;i<ids.length;i++){
+      say('Lecture des emails '+(i+1)+' / '+ids.length+'…');
+      const msg=await g('messages/'+ids[i].id+'?format=full');
+      const H=k=>((msg.payload.headers||[]).find(h=>h.name.toLowerCase()===k)||{}).value||'';
+      const date=new Date(Number(msg.internalDate)).toISOString().slice(0,10),from=H('from'),subj=H('subject');
+      const who=safe(from.replace(/<.*$/,'').replace(/"/g,'').trim()||from);
+      const tag=msg.id.slice(-4),o=walk(msg.payload);let got=0;
+      for(const p of o.att){
+        const mt=(p.mimeType||'').toLowerCase(),fn=(p.filename||'').toLowerCase();
+        if(!(mt==='application/pdf'||mt==='application/octet-stream'||/\.(pdf|xml)$/.test(fn)||(mt.indexOf('image/')===0&&(p.body.size||0)>15000)))continue;
+        const d=await g('messages/'+msg.id+'/attachments/'+p.body.attachmentId);
+        const f='factures-gmail/'+who+'/'+date+'_'+tag+'_'+safe(p.filename||'facture')+(/\.[a-z0-9]{2,4}$/.test(fn)?'':'.pdf');
+        zip.file(f,bytes(d.data));idx.push([date,from,subj,f]);got++;n++;
+      }
+      if(!got){
+        const body=o.html||o.plain;
+        if(body&&/facture|invoice/i.test(body.replace(/<[^>]+>/g,' '))){
+          const f='factures-gmail/'+who+'/'+date+'_'+tag+'_'+safe(subj)+(o.html?'.html':'.txt');
+          zip.file(f,body);idx.push([date,from,subj,f]);n++;
+        }
+      }
+    }
+    if(!n)return 0;
+    zip.file('index.csv','\ufeff'+idx.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\n'));
+    say('Création du zip…');
+    const blob=await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob),el=document.createElement('a');
+    el.href=url;el.download='factures-gmail-'+ym+'.zip';
+    document.body.appendChild(el);el.click();document.body.removeChild(el);URL.revokeObjectURL(url);
+    return n;
+  }
+
+  function openIt(){
+    const now=new Date(),cur=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+    back=document.createElement('div');back.className='backdrop';
+    back.innerHTML='<div class="sheet"><div class="sheet-head"><h2>📧 Factures Gmail</h2><button class="icon-btn" id="gX">✕</button></div>'
+      +'<div class="tax-note" style="padding:0 2px 10px;">Cherche les emails du mois contenant « facture » ou « invoice » (objet ou contenu), télécharge les pièces jointes (PDF, images, XML) et enregistre le texte des emails sans pièce jointe. Lecture seule.</div>'
+      +'<div class="card"><div class="field-row"><span class="field-label">Mois</span><input class="text-input" type="month" id="gM" value="'+cur+'" style="max-width:170px;"></div></div>'
+      +'<button class="btn btn-primary"
 </body>
 </html>
