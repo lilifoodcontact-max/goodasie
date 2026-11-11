@@ -3004,6 +3004,54 @@ fab.addEventListener('click',menuView);
 document.body.appendChild(fab);
 setInterval(()=>{fab.style.display=(document.querySelector('.tabbar-inner')&&!document.querySelector('.backdrop'))?'block':'none';},700);
 })();
+</script><script>
+/* ===== ACCÉLÉRATEUR : cache des lectures + préchargement de l'année ===== */
+(function(){
+"use strict";
+var st=window.storage;if(!st||st.__fast)return;
+var cache={},rawGet=st.get.bind(st),rawSet=st.set.bind(st),rawDel=st.delete.bind(st);
+var skip=function(k){return /^photo:/.test(k);};   /* les photos (lourdes) ne sont pas mises en cache */
+
+st.get=function(key,shared){
+  if(skip(key))return rawGet(key,shared);
+  if(!cache[key]){
+    cache[key]=rawGet(key,shared).catch(function(e){if(!(e&&e.status===404))delete cache[key];throw e;});
+  }
+  return cache[key];
+};
+st.set=function(key,value,shared){
+  return rawSet(key,value,shared).then(function(r){
+    if(!skip(key))cache[key]=Promise.resolve({key:key,value:value,shared:false});
+    return r;
+  },function(e){delete cache[key];throw e;});
+};
+st.delete=function(key,shared){delete cache[key];return rawDel(key,shared);};
+st.__fast=true;
+
+/* Vide le cache à chaque connexion / déconnexion (évite de mélanger deux comptes) */
+var f=window.fetch;
+window.fetch=function(u,o){
+  var clear=false;
+  try{clear=String(u).indexOf('/api/auth')>=0&&o&&/"action":"(login|signup|logout)"/.test(String(o.body));}catch(e){}
+  if(clear)cache={};
+  var p=f.apply(this,arguments);
+  if(clear)p.then(function(){cache={};},function(){});
+  return p;
+};
+
+/* Préchargement : dès que l'utilisateur est connecté, lit les 12 mois en parallèle */
+var done=false;
+setInterval(function(){
+  var logged=!!document.querySelector('.tabbar-inner');
+  if(logged&&!done){
+    done=true;
+    var y=new Date().getFullYear();
+    st.get('settings',false).catch(function(){});
+    for(var m=1;m<=12;m++)st.get('month:'+y+'-'+(m<10?'0'+m:m),false).catch(function(){});
+  }
+  if(!logged)done=false;
+},800);
+})();
 </script>
 </body>
 </html>
