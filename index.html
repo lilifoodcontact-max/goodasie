@@ -3098,7 +3098,10 @@
   document.body.appendChild(fab);
   setInterval(()=>{fab.style.display=(document.querySelector('.tabbar-inner')&&!document.querySelector('.backdrop'))?'block':'none';},700);
 })();
-</script><script>
+</script><script><script>
+window.addEventListener('error',function(e){alert('Erreur : '+e.message+' (ligne '+e.lineno+')');});
+alert('Test : le nouveau code est bien chargé');
+</script>
 /* =====================================================================
    OUTILS — Ticket caisse · Facture · Factures Gmail
    Module autonome, à coller juste au-dessus de </body>
