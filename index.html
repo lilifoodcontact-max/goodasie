@@ -2684,7 +2684,225 @@
     }
   });
 
-  boot();
+    /* ================= LILIFOOD — Stock : crayon ✎ + export comptable ================= */
+
+  /* ---------- Vue générale : un crayon ✎ à côté de chaque produit ---------- */
+  async function renderStockVue(){
+    const summary = await computeStockSummary();
+    let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">Vue générale</span></div>`;
+    if(summary.rows.length===0){
+      html += `<div class="empty-state"><span class="big">📭</span>Aucun produit pour l'instant.<br>Ajoutez des produits depuis un écran Entrée/Sortie.</div>`;
+    } else {
+      const bySupplier = {};
+      summary.rows.forEach(r=>{
+        const sid = r.product.supplierId;
+        (bySupplier[sid] = bySupplier[sid]||[]).push(r);
+      });
+      state.settings.suppliers.forEach(sup=>{
+        const rows = bySupplier[sup.id]||[];
+        if(rows.length===0) return;
+        html += `<div class="section-title"><span class="swatch" style="background:var(--amber)"></span>${escapeHtml(sup.name)}</div><div class="card">`;
+        rows.forEach(r=>{
+          html += `<div class="field-row" style="flex-wrap:wrap;">
+            <div style="flex:1;min-width:120px;">
+              <div style="font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;">${escapeHtml(r.product.name)}
+                <button class="pencil-stock" data-pid="${r.product.id}" aria-label="Modifier le stock" title="Modifier le stock restant" style="width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--teal);cursor:pointer;font-size:13px;line-height:1;padding:0;flex-shrink:0;">✎</button>
+              </div>
+              <div style="font-size:11px;color:var(--muted);">Entrée ${r.entree} · Sortie ${r.sortie} · Stock <b>${r.stock}</b></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input class="mini-input decnum" type="text" inputmode="decimal" data-price="${r.product.id}" value="${r.product.unitPrice||0}"> €
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;min-width:70px;text-align:right;">${fmtMoney(r.value)}</span>
+            </div>
+          </div>`;
+        });
+        html += `</div>`;
+      });
+      html += `<div class="receipt" style="margin-top:20px;">
+        <div class="receipt-title">Valeur totale du stock</div>
+        <div class="receipt-line receipt-total"><span>Total</span><span class="val pos">${fmtMoney(summary.totalValue)}</span></div>
+      </div>`;
+    }
+    return html;
+  }
+
+  /* ---------- Clic sur ✎ : on entre le stock restant, la différence va dans « Sortie » ---------- */
+  function parseStockNum(v){ return Number(String(v).replace(',','.').trim()); }
+
+  async function editStockFromVue(pid){
+    let summary;
+    try{ summary = await computeStockSummary(); }
+    catch(e){ alert('Impossible de charger le stock : '+e.message); return; }
+    const row = summary.rows.find(r=>r.product.id===pid);
+    if(!row) return;
+    const sup = state.settings.suppliers.find(s=>s.id===row.product.supplierId);
+    if(!sup){ alert('Fournisseur introuvable pour ce produit.'); return; }
+    const cur = Number(Number(row.stock).toFixed(2));
+
+    const back = document.createElement('div');
+    back.className = 'backdrop';
+    back.innerHTML = `<div class="sheet" role="dialog" aria-label="Modifier le stock">
+      <div class="sheet-head"><h2>${escapeHtml(row.product.name)}</h2><button class="icon-btn" data-x>✕</button></div>
+      <div class="tax-note" style="padding:0 2px 10px;">Stock actuel : <b>${cur}</b>.<br>Entre le stock qui reste. La différence est enregistrée automatiquement dans « ${escapeHtml(sup.name)} · Sortie » (marchandises utilisées). Ici on peut seulement diminuer le stock.</div>
+      <div class="card"><div class="field-row"><span class="field-label">Stock restant</span>
+        <div class="field-input-wrap"><input class="field-input decnum" id="newStockInput" type="text" inputmode="decimal" value="${cur}"></div></div></div>
+      <div class="tax-note" id="newStockInfo" style="min-height:18px;"></div>
+      <button class="btn btn-primary" data-save>Enregistrer</button>
+    </div>`;
+    document.body.appendChild(back);
+    const input = back.querySelector('#newStockInput');
+    const info = back.querySelector('#newStockInfo');
+    function close(){ if(back.parentNode) back.parentNode.removeChild(back); }
+    function say(msg, bad){ info.textContent = msg; info.style.color = bad ? 'var(--red)' : 'var(--teal)'; }
+    function preview(){
+      const v = parseStockNum(input.value);
+      if(input.value.trim()==='' || isNaN(v)){ say('', false); return; }
+      if(v > cur + 0.0001){ say('On ne peut que diminuer le stock ici. Pour en ajouter, utilise « Entrée » du fournisseur.', true); return; }
+      if(v < 0){ say('Le stock ne peut pas être négatif.', true); return; }
+      const diff = Number((cur - v).toFixed(2));
+      say(diff>0 ? 'Sortie à enregistrer : '+diff : 'Aucun changement.', false);
+    }
+    input.addEventListener('input', preview);
+    setTimeout(()=>{ input.focus(); input.select(); }, 150);
+    back.querySelector('[data-x]').addEventListener('click', close);
+    back.addEventListener('click', e=>{ if(e.target===back) close(); });
+
+    back.querySelector('[data-save]').addEventListener('click', async ()=>{
+      const v = parseStockNum(input.value);
+      if(input.value.trim()==='' || isNaN(v)){ say('Entre un nombre.', true); return; }
+      if(v < 0){ say('Le stock ne peut pas être négatif.', true); return; }
+      if(v > cur + 0.0001){ say('On ne peut que diminuer le stock ici. Pour en ajouter, utilise « Entrée » du fournisseur.', true); return; }
+      const diff = Number((cur - v).toFixed(2));
+      if(diff <= 0){ close(); return; }
+      try{
+        const d = new Date();
+        const mk = monthKeyOf(d);
+        const m = await getStock(sup.id, mk);
+        m.sortie.push({ day: d.getDate(), productId: row.product.id, qty: diff, src: 'vue' });
+        await saveStock(sup.id, mk);
+      }catch(e){
+        say('Échec de l’enregistrement : '+(e && e.message ? e.message : e), true);
+        return;
+      }
+      close();
+      showToast('✓ '+row.product.name+' : stock '+Number(v.toFixed(2))+' (sortie '+diff+' enregistrée)');
+      render();
+    });
+  }
+
+  document.body.addEventListener('click', (e)=>{
+    const b = e.target && e.target.closest ? e.target.closest('.pencil-stock') : null;
+    if(b){ e.preventDefault(); editStockFromVue(b.dataset.pid); }
+  });
+
+  /* ---------- Export du stock pour le comptable (Excel) ---------- */
+  async function startStockExport(){
+    let summary;
+    try{ summary = await computeStockSummary(); }
+    catch(e){ alert('Impossible de charger le stock : '+e.message); return; }
+    const order = state.settings.suppliers.map(s=>s.id);
+    const rows = summary.rows.slice().sort((a,b)=>{
+      const d = order.indexOf(a.product.supplierId) - order.indexOf(b.product.supplierId);
+      return d || String(a.product.name).localeCompare(String(b.product.name),'fr');
+    });
+    if(!rows.length){ alert('Aucun produit à exporter. Ajoute d’abord des produits dans Stock.'); return; }
+
+    const back = document.createElement('div');
+    back.className = 'backdrop';
+    back.innerHTML = `<div class="sheet" role="dialog" aria-label="Exporter le stock">
+      <div class="sheet-head"><h2>📦 Exporter le stock</h2><button class="icon-btn" data-x>✕</button></div>
+      <div class="tax-note" style="padding:0 2px 10px;">Coche les produits à inclure dans le tableau pour le comptable. Les produits non cochés ne seront pas exportés.</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" data-all style="flex:1;">Tout cocher</button>
+        <button class="btn btn-ghost btn-sm" data-none style="flex:1;">Tout décocher</button>
+      </div>
+      <div class="card" style="max-height:46vh;overflow-y:auto;">${rows.map(r=>`
+        <label class="checklist-row" style="cursor:pointer;">
+          <input type="checkbox" data-pid="${r.product.id}" ${r.stock>0?'checked':''}>
+          <span style="flex:1;"><span class="field-label">${escapeHtml(r.product.name)}</span>
+            <span style="display:block;font-size:11px;color:var(--muted);">${r.stock} × ${fmtMoney(r.product.unitPrice||0)} = ${fmtMoney(r.value)}</span></span>
+        </label>`).join('')}</div>
+      <div class="receipt-line receipt-total" style="margin-top:14px;"><span id="expCount"></span><span id="expTotal"></span></div>
+      <button class="btn btn-primary" data-go style="margin-top:12px;">📊 Exporter (Excel)</button>
+      <div class="save-confirm" id="expMsg" style="margin-top:10px;"></div>
+    </div>`;
+    document.body.appendChild(back);
+    const boxes = Array.from(back.querySelectorAll('[data-pid]'));
+    function selected(){ return rows.filter(r=>boxes.some(b=>b.checked && b.dataset.pid===r.product.id)); }
+    function refresh(){
+      const sel = selected();
+      back.querySelector('#expCount').textContent = sel.length+' produit(s) sélectionné(s)';
+      back.querySelector('#expTotal').textContent = fmtMoney(sel.reduce((s,r)=>s+Number(r.value||0),0));
+    }
+    boxes.forEach(b=>b.addEventListener('change', refresh));
+    back.querySelector('[data-all]').addEventListener('click', ()=>{ boxes.forEach(b=>b.checked=true); refresh(); });
+    back.querySelector('[data-none]').addEventListener('click', ()=>{ boxes.forEach(b=>b.checked=false); refresh(); });
+    refresh();
+    function close(){ if(back.parentNode) back.parentNode.removeChild(back); }
+    back.querySelector('[data-x]').addEventListener('click', close);
+    back.addEventListener('click', e=>{ if(e.target===back) close(); });
+
+    back.querySelector('[data-go]').addEventListener('click', async ()=>{
+      const msg = back.querySelector('#expMsg');
+      const sel = selected();
+      if(!sel.length){ msg.textContent = 'Coche au moins un produit.'; msg.style.color = 'var(--red)'; return; }
+      let XLSX;
+      try{ XLSX = await loadSheetJS(); }
+      catch(e){ msg.textContent = e.message; msg.style.color = 'var(--red)'; return; }
+
+      const today = new Date();
+      const data = [
+        [state.settings.companyName+' — Inventaire du stock'],
+        ['Au '+today.toLocaleDateString('fr-FR')],
+        [],
+        ['Produit','Prix unitaire (€)','Quantité','Valeur totale (€)']
+      ];
+      let total = 0;
+      sel.forEach(r=>{
+        const price = Number(r.product.unitPrice||0);
+        const qty = Number(Number(r.stock).toFixed(2));
+        const val = Number((qty*price).toFixed(2));
+        total += val;
+        data.push([r.product.name, price, qty, val]);
+      });
+      data.push(['TOTAL','','', Number(total.toFixed(2))]);
+
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      for(let i=4; i<data.length; i++){
+        [1,3].forEach(c=>{
+          const cell = ws[XLSX.utils.encode_cell({r:i, c:c})];
+          if(cell && typeof cell.v==='number') cell.z = '#,##0.00';
+        });
+      }
+      ws['!cols'] = [{wch:34},{wch:18},{wch:12},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock');
+      XLSX.writeFile(wb, safeFilenamePart(state.settings.companyName)+'_stock_'+dateKey(today)+'.xlsx');
+      close();
+      showToast('✓ Tableau de stock exporté ('+sel.length+' produit(s))');
+    });
+  }
+
+  /* ---------- Ajoute « Exporter le stock » dans le menu 🧰 Outils ---------- */
+  function addStockExportToOutils(){
+    const h = Array.from(document.querySelectorAll('.sheet-head h2')).find(x=>x.textContent.trim()==='🧰 Outils');
+    if(!h) return;
+    const sheet = h.closest('.sheet');
+    if(!sheet || sheet.querySelector('#exportStockCard')) return;
+    const list = sheet.querySelector('.card');
+    if(!list) return;
+    const el = document.createElement('div');
+    el.className = 'tap-card';
+    el.id = 'exportStockCard';
+    el.innerHTML = '<div class="tc-left"><div class="tc-icon" style="background:var(--teal-dim);">📦</div><div><div class="tc-title">Exporter le stock</div><div class="tc-sub">Tableau Excel pour le comptable (tu choisis les produits)</div></div></div><span class="chev">›</span>';
+    el.addEventListener('click', ()=>{
+      const x = sheet.querySelector('#xX');
+      if(x) x.click();
+      startStockExport();
+    });
+    list.appendChild(el);
+  }
+  new MutationObserver(addStockExportToOutils).observe(document.body, {childList:true, subtree:true});boot();
 })();</script>
 <script>
 /* =====================================================================
