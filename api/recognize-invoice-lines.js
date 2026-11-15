@@ -27,9 +27,10 @@ module.exports = async function handler(req, res) {
     "Extrais :",
     "1) supplierName : le nom de l'entreprise FOURNISSEUR qui a émis le document (pas le destinataire), ou null si incertain.",
     "2) amount : le MONTANT TOTAL TTC à payer (nombre pur, point décimal), ou null si incertain.",
-    "3) lines : la liste des lignes de PRODUITS. Pour chaque ligne : name = la désignation exactement comme écrite sur la facture, quantity = la quantité facturée (nombre), unitPrice = le prix unitaire HT (nombre, 0 si illisible).",
-    "Ignore les lignes qui ne sont pas des produits (transport, consigne, remise globale, totaux).",
-    'Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, au format exact : {"supplierName": "Nom ou null", "amount": 123.45, "lines": [{"name": "Désignation", "quantity": 2, "unitPrice": 10.5}]}'
+    "3) lines : la liste des lignes de PRODUITS. Pour chaque ligne : name = la désignation exactement comme écrite sur la facture (avec les mentions entre parenthèses), quantity = la quantité facturée (nombre), unitPrice = le prix unitaire HT (nombre, 0 si illisible).",
+    "4) discount : le montant total HT des remises globales appliquées au document (nombre positif, par exemple 12.84), ou 0 s'il n'y a aucune remise.",
+    "Ignore dans lines les lignes qui ne sont pas des produits (transport, consigne, remise, totaux).",
+    'Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, au format exact : {"supplierName": "Nom ou null", "amount": 123.45, "discount": 0, "lines": [{"name": "Désignation", "quantity": 2, "unitPrice": 10.5}]}'
   ].join('\n');
 
   const geminiBody = {
@@ -72,6 +73,8 @@ module.exports = async function handler(req, res) {
       ? parsed.supplierName.trim() : null;
     const amount = (parsed && typeof parsed.amount === 'number' && isFinite(parsed.amount) && parsed.amount > 0)
       ? parsed.amount : null;
+    const discount = (parsed && typeof parsed.discount === 'number' && isFinite(parsed.discount) && parsed.discount > 0)
+      ? parsed.discount : 0;
 
     const rawLines = (parsed && Array.isArray(parsed.lines)) ? parsed.lines : [];
     const lines = rawLines
@@ -87,7 +90,7 @@ module.exports = async function handler(req, res) {
         return { name: l.name, quantity: l.quantity, unitPrice: (isFinite(l.unitPrice) && l.unitPrice >= 0) ? l.unitPrice : 0 };
       });
 
-    res.status(200).json({ supplierName, amount, lines });
+    res.status(200).json({ supplierName, amount, discount, lines });
   } catch (e) {
     console.error('recognize-invoice-lines failed', e);
     res.status(500).json({ error: 'Erreur serveur lors de la reconnaissance.' });
