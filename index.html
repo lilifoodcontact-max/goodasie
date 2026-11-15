@@ -1025,7 +1025,146 @@
     render();
   }
 
-  function showAmountConfirmSheet(photoDataUrl, categoryName, supplierName, prefillAmount){
+    /* ---------------- Scan facture : produits, caisses, prix (mémorisés) ---------------- */
+  function wordsOf(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(w=>w.length>=3); }
+  function guessProduct(name, prods){
+    const w = wordsOf(name); let best=null, bs=0;
+    prods.forEach(p=>{
+      const pw = wordsOf(p.name); if(!pw.length) return;
+      const sc = pw.filter(x=>w.some(y=>y===x||y.indexOf(x)===0||x.indexOf(y)===0)).length/pw.length;
+      if(sc>bs){ bs=sc; best=p; }
+    });
+    return bs>=0.5 ? best.id : '';
+  }
+  function guessBox(name){
+    const m = /\*\s*\((\d+)\)/.exec(name) || /\((\d+)\)\s*$/.exec(name);
+    return m ? Number(m[1]) : 0;
+  }
+
+  async function recognizeInvoiceLines(dataUrl){
+    const parts = dataUrlParts(dataUrl);
+    if(!parts) return { error:'Photo invalide.' };
+    try{
+      const res = await fetch('/api/recognize-invoice-lines', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ image: parts.base64, mimeType: parts.mimeType })
+      });
+      let data = null;
+      try{ data = await res.json(); }catch(e){ data = null; }
+      if(!res.ok) return { error:(data && data.error) ? data.error : ('Erreur serveur (HTTP '+res.status+').') };
+      return data || {};
+    }catch(e){ return { error:'Connexion au serveur impossible : '+(e && e.message ? e.message : e) }; }
+  }
+
+  function showInvoiceLinesSheet(photo, sup, lines, factor, amount){
+    return new Promise(resolve=>{
+      const back = document.createElement('div');
+      back.className = 'backdrop';
+      document.body.appendChild(back);
+      const n = v=>Number(String(v).replace(',','.'))||0;
+      const per = l=>(n(l.perBox)>0 ? n(l.price)*factor/n(l.perBox) : 0);
+      function draw(){
+        const prods = state.settings.products.filter(p=>p.supplierId===sup.id);
+        back.innerHTML = '<div class="sheet"><div class="sheet-head"><h2>Facture '+escapeHtml(sup.name)+'</h2><button class="icon-btn" data-x>✕</button></div>'
+          +(photo?'<img src="'+photo+'" class="photo-thumb" style="max-height:120px;">':'')
+          +(factor<1?'<div class="tax-note" style="padding:0 2px 8px;">Remise de '+((1-factor)*100).toFixed(1)+' % répartie sur chaque produit.</div>':'')
+          +'<div class="card">'+(lines.length ? lines.map((l,i)=>
+            '<div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px;"><div style="font-size:11px;color:var(--muted);">'+escapeHtml(l.name)+(l.known?' · ✓ mémorisé':'')+'</div>'
+            +'<select class="field-select" data-p="'+i+'"><option value="">— produit —</option>'
+            +prods.map(p=>'<option value="'+p.id+'" '+(p.id===l.pid?'selected':'')+'>'+escapeHtml(p.name)+'</option>').join('')
+            +'<option value="__new__">+ Nouveau produit…</option><option value="__skip__" '+(l.pid==='__skip__'?'selected':'')+'>Ne pas suivre en stock</option></select>'
+            +((l.pid && l.pid!=='__skip__') ? '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;"><input class="field-input decnum" style="width:46px;" data-q="'+i+'" value="'+l.qty+'"> caisse(s) × <input class="field-input decnum" style="width:46px;" data-b="'+i+'" value="'+l.perBox+'"> paquets = <b id="pp'+i+'">'+(per(l)?fmtMoney(per(l)):'—')+'</b> / paquet</div>' : '')
+            +'</div>').join('') : '<div class="tax-note" style="padding:12px;">Aucune ligne lue sur cette facture.</div>')+'</div>'
+          +'<div class="card" style="margin-top:12px;"><div class="field-row"><span class="field-label">Total TTC (Achats)</span><div class="field-input-wrap"><input class="field-input decnum" id="invAmt" value="'+(amount||'')+'"><span class="field-suffix">€</span></div></div></div>'
+          +'<button class="btn btn-primary" data-save>Enregistrer</button></div>';
+        back.querySelector('[data-x]').onclick = ()=>{ document.body.removeChild(back); resolve(null); };
+        back.querySelectorAll('[data-p]').forEach(el=>el.onchange = ()=>{
+          const l = lines[Number(el.dataset.p)];
+          if(el.value==='__new__'){
+            const name = (prompt('Nom du nouveau produit ?', l.name)||'').trim();
+            if(!name){ draw(); return; }
+            const p = { id: uid('p'), name, supplierId: sup.id, unitPrice: 0 };
+            state.settings.products.push(p); l.pid = p.id;
+          } else {
+            l.pid = el.value;
+            const p = state.settings.products.find(x=>x.id===l.pid);
+            if(p && p.perBox && !n(l.perBox)) l.perBox = String(p.perBox);
+          }
+          l.known = false; draw();
+        });
+        back.querySelectorAll('[data-q],[data-b]').forEach(el=>el.oninput = ()=>{
+          const isQ = el.dataset.q!==undefined, i = Number(isQ ? el.dataset.q : el.dataset.b);
+          if(isQ) lines[i].qty = el.value.replace(',','.'); else lines[i].perBox = el.value.replace(',','.');
+          const e = back.querySelector('#pp'+i); if(e) e.textContent = per(lines[i]) ? fmtMoney(per(lines[i])) : '—';
+        });
+        back.querySelector('#invAmt').oninput = e=>{ amount = e.target.value.replace(',','.'); };
+        back.querySelector('[data-save]').onclick = ()=>{
+          const bad = lines.some(l=>!l.pid || (l.pid!=='__skip__' && !(n(l.perBox)>0 && n(l.qty)>0)));
+          if(bad){ alert('Pour chaque ligne : choisis le produit (ou « Ne pas suivre ») et le nombre de paquets par caisse.'); return; }
+          document.body.removeChild(back); resolve({ lines: lines, amount: n(amount) });
+        };
+      }
+      draw();
+    });
+  }
+
+  async function startInvoiceScanFlow(){
+    const photo = await capturePhoto();
+    if(!photo){ showToast('Aucune photo — rien enregistré'); return; }
+    const hide = showLoadingOverlay('Lecture de la facture par l’IA…');
+    let r;
+    try{ r = await recognizeInvoiceLines(photo); } finally{ hide(); }
+    const supplier = await resolveSupplierFromName(r.supplierName, r.error);
+    if(!supplier){ showToast('Annulé : aucun fournisseur choisi — rien enregistré'); return; }
+    const s = state.settings;
+    s.invoiceMap = s.invoiceMap || {};
+    const prods = s.products.filter(p=>p.supplierId===supplier.id);
+    const raw = Array.isArray(r.lines) ? r.lines : [];
+    const sum = raw.reduce((t,l)=>t+l.quantity*l.unitPrice, 0), disc = Number(r.discount)||0;
+    const factor = (disc>0 && disc<sum) ? (sum-disc)/sum : 1;
+    const lines = raw.map(l=>{
+      const m = s.invoiceMap[supplier.id+'|'+normalizeName(l.name)];
+      const known = !!(m && (m.pid==='__skip__' || s.products.some(p=>p.id===m.pid)));
+      const pid = known ? m.pid : guessProduct(l.name, prods);
+      const p = s.products.find(x=>x.id===pid);
+      const box = (known && m.perBox) ? m.perBox : (guessBox(l.name) || (p && p.perBox) || '');
+      return { name:l.name, qty:String(l.quantity), price:l.unitPrice, pid, perBox:String(box), known };
+    });
+    const out = await showInvoiceLinesSheet(photo, supplier, lines, factor, r.amount);
+    if(!out){ showToast('Annulé — rien enregistré'); return; }
+    try{
+      const d = state.selectedDate, mk = monthKeyOf(d), day = d.getDate();
+      const sm = await getStock(supplier.id, mk);
+      let nStock = 0;
+      out.lines.forEach(l=>{
+        const key = supplier.id+'|'+normalizeName(l.name);
+        if(l.pid==='__skip__'){ s.invoiceMap[key] = { pid:'__skip__' }; return; }
+        const p = s.products.find(x=>x.id===l.pid), box = Number(String(l.perBox).replace(',','.')), qty = Number(String(l.qty).replace(',','.'));
+        const per = Number(l.price)*factor/box;
+        p.perBox = box;
+        if(per>0) p.unitPrice = Math.round(per*10000)/10000;
+        s.invoiceMap[key] = { pid:p.id, perBox:box };
+        sm.entree.push({ day, productId:p.id, qty: Math.round(qty*box*10000)/10000 });
+        nStock++;
+      });
+      if(nStock) await saveStock(supplier.id, mk);
+      const cat = s.expenseCategories.find(c=>c.id==='c8') || s.expenseCategories.find(c=>c.linksSupplier);
+      if(out.amount>0 && cat){
+        const month = await getMonth(mk);
+        if(!month.days[String(day)]) month.days[String(day)] = emptyDay();
+        const dd = month.days[String(day)];
+        if(!dd.receipts) dd.receipts = [];
+        dd.expenses[cat.id] = Number(dd.expenses[cat.id]||0) + out.amount;
+        dd.receipts.push({ id: uid('rc'), kind:'expense', amount: out.amount, catId: cat.id, supplierId: supplier.id, photo, ts: Date.now() });
+        await saveMonth(mk);
+      }
+      await saveSettings();
+      showToast('✓ '+nStock+' produit(s) en stock · prix mis à jour'+(out.amount>0?' · '+fmtMoney(out.amount)+' en Achats':''));
+      render();
+    }catch(e){
+      alert('Erreur pendant l’enregistrement : '+e.message+'\nVérifie le stock et les Achats avant de réessayer, une partie a pu être enregistrée.');
+    }
+  }function showAmountConfirmSheet(photoDataUrl, categoryName, supplierName, prefillAmount){
     return new Promise((resolve)=>{
       const back = document.createElement('div');
       back.className = 'backdrop';
