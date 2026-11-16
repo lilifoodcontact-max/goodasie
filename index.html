@@ -3222,6 +3222,216 @@
     }catch(e){
       alert('Erreur pendant l’enregistrement : '+e.message+'\nVérifie le stock et les Achats avant de réessayer, une partie a pu être enregistrée.');
     }
+  }  /* ================= LILIFOOD — Alertes de stock (jaune ≤ 3, rouge ≤ 1) + liste « À racheter » ================= */
+
+  const STOCK_WARN = 3, STOCK_CRIT = 1;
+  const YEL = '#B58900', YEL_BG = '#FFF4CC';
+
+  function stockQty(v){ return Number(Number(v||0).toFixed(2)); }
+
+  /* Niveau d'alerte : 'red' | 'yellow' | null.
+     Lu UNIQUEMENT à partir de entrée − sortie : rien n'est stocké à part, donc aucun doublon possible. */
+  function stockLevel(r){
+    if(r.product.noAlert) return null;
+    if(!(Number(r.entree)>0) && !(Number(r.sortie)>0)) return null;   /* produit jamais reçu : pas d'alerte */
+    const s = stockQty(r.stock);
+    if(s <= STOCK_CRIT) return 'red';
+    if(s <= STOCK_WARN) return 'yellow';
+    return null;
+  }
+
+  /* ---------- Liste « À racheter » (en haut de la page Stock), groupée par fournisseur ---------- */
+  function restockHtml(summary){
+    const items = summary.rows.map(r=>({ r, lv: stockLevel(r) })).filter(x=>x.lv);
+    const rank = lv => lv==='red' ? 0 : 1;
+    const groups = state.settings.suppliers.map(sup=>({
+      sup,
+      items: items.filter(x=>x.r.product.supplierId===sup.id)
+                  .sort((a,b)=> rank(a.lv)-rank(b.lv) || stockQty(a.r.stock)-stockQty(b.r.stock))
+    })).filter(g=>g.items.length);
+    groups.sort((a,b)=> Math.min(...a.items.map(x=>rank(x.lv))) - Math.min(...b.items.map(x=>rank(x.lv))));
+
+    let html = `<div class="section-title" style="margin-top:6px;"><span class="swatch" style="background:var(--red)"></span>À racheter${items.length?` <span style="font-size:11px;font-weight:600;color:#fff;background:var(--red);border-radius:10px;padding:1px 8px;">${items.length}</span>`:''}</div>`;
+    if(!items.length){
+      return html + `<div class="flag-box flag-ok" style="margin-bottom:18px;">✅ Rien à racheter pour l’instant</div>`;
+    }
+    html += `<div class="card" style="margin-bottom:18px;">`;
+    groups.forEach(g=>{
+      html += `<div style="padding:9px 14px 5px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--line);background:#FCFAF5;">${escapeHtml(g.sup.name)}</div>`;
+      g.items.forEach(x=>{
+        const red = x.lv==='red', col = red ? 'var(--red)' : YEL;
+        html += `<div class="field-row" style="background:${red?'var(--red-dim)':YEL_BG};">
+          <span class="field-label" style="display:flex;align-items:center;gap:8px;"><i style="width:10px;height:10px;border-radius:50%;background:${col};display:inline-block;flex-shrink:0;"></i>${escapeHtml(x.r.product.name)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:${col};">${stockQty(x.r.stock)}</span>
+        </div>`;
+      });
+    });
+    return html + `</div>`;
+  }
+
+  /* ---------- Page Stock : la liste « À racheter » en haut ---------- */
+  async function renderStockLanding(){
+    const summary = await computeStockSummary();
+    let html = `<h1 class="page-title">📦 Stock</h1>`;
+    html += restockHtml(summary);
+    html += `<div class="card" style="margin-bottom:18px;">
+      <div class="tap-card" id="scanInvoiceBtn">
+        <div class="tc-left"><div class="tc-icon" style="background:var(--amber-dim);color:var(--amber);">${svgWrap('cam')}</div>
+          <div><div class="tc-title">Scanner une facture</div><div class="tc-sub">Photo → fournisseur + montant reconnus → enregistré dans Achats</div></div>
+        </div><span class="chev">›</span>
+      </div>
+      <div class="tap-card" id="goVue">
+        <div class="tc-left"><div class="tc-icon" style="background:var(--teal-dim);color:var(--teal);">${svgWrap('list')}</div>
+          <div><div class="tc-title">Vue générale</div><div class="tc-sub">${summary.rows.length} produits · valeur totale ${fmtMoney(summary.totalValue)}</div></div>
+        </div><span class="chev">›</span>
+      </div>
+    </div>`;
+    state.settings.suppliers.forEach(sup=>{
+      html += `<div class="section-title"><span class="swatch" style="background:var(--amber)"></span>${escapeHtml(sup.name)}</div>
+      <div class="card">
+        <div class="tap-card" data-sup="${sup.id}" data-dir="entree">
+          <div class="tc-left"><div class="tc-icon" style="background:var(--teal-dim);color:var(--teal);">${svgWrap('in')}</div>
+            <div><div class="tc-title">${escapeHtml(sup.name)} · Entrée</div><div class="tc-sub">Réceptions de marchandises</div></div>
+          </div><span class="chev">›</span>
+        </div>
+        <div class="tap-card" data-sup="${sup.id}" data-dir="sortie">
+          <div class="tc-left"><div class="tc-icon" style="background:var(--red-dim);color:var(--red);">${svgWrap('out')}</div>
+            <div><div class="tc-title">${escapeHtml(sup.name)} · Sortie</div><div class="tc-sub">Marchandises utilisées / vendues</div></div>
+          </div><span class="chev">›</span>
+        </div>
+      </div>`;
+    });
+    return html;
+  }
+
+  /* ---------- Vue générale : couleurs + ✎ (modifier) + 🔔 (alerte on/off) ---------- */
+  async function renderStockVue(){
+    const summary = await computeStockSummary();
+    let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">Vue générale</span></div>`;
+    if(summary.rows.length===0){
+      html += `<div class="empty-state"><span class="big">📭</span>Aucun produit pour l'instant.<br>Ajoutez des produits depuis un écran Entrée/Sortie.</div>`;
+    } else {
+      const bySupplier = {};
+      summary.rows.forEach(r=>{
+        const sid = r.product.supplierId;
+        (bySupplier[sid] = bySupplier[sid]||[]).push(r);
+      });
+      const btn = 'width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:var(--paper);cursor:pointer;font-size:13px;line-height:1;padding:0;flex-shrink:0;';
+      state.settings.suppliers.forEach(sup=>{
+        const rows = bySupplier[sup.id]||[];
+        if(rows.length===0) return;
+        html += `<div class="section-title"><span class="swatch" style="background:var(--amber)"></span>${escapeHtml(sup.name)}</div><div class="card">`;
+        rows.forEach(r=>{
+          const lv = stockLevel(r);
+          const bg = lv==='red' ? 'background:var(--red-dim);' : (lv==='yellow' ? 'background:'+YEL_BG+';' : '');
+          const col = lv==='red' ? 'var(--red)' : (lv==='yellow' ? YEL : 'inherit');
+          const pill = lv==='red'
+            ? '<span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);border-radius:8px;padding:1px 7px;">À racheter</span>'
+            : (lv==='yellow' ? '<span style="font-size:10px;font-weight:700;color:#fff;background:'+YEL+';border-radius:8px;padding:1px 7px;">Stock bas</span>' : '');
+          html += `<div class="field-row" style="flex-wrap:wrap;${bg}">
+            <div style="flex:1;min-width:120px;">
+              <div style="font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${escapeHtml(r.product.name)}
+                <button class="pencil-stock" data-pid="${r.product.id}" aria-label="Modifier le stock" title="Modifier le stock restant" style="${btn}color:var(--teal);">✎</button>
+                <button class="bell-stock" data-pid="${r.product.id}" aria-label="Alerte de stock" title="${r.product.noAlert?'Alerte désactivée (toucher pour activer)':'Alerte activée (toucher pour désactiver)'}" style="${btn}${r.product.noAlert?'opacity:.45;':''}">${r.product.noAlert?'🔕':'🔔'}</button>
+                ${pill}
+              </div>
+              <div style="font-size:11px;color:var(--muted);">Entrée ${stockQty(r.entree)} · Sortie ${stockQty(r.sortie)} · Stock <b style="color:${col};font-size:13px;">${stockQty(r.stock)}</b></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input class="mini-input decnum" type="text" inputmode="decimal" data-price="${r.product.id}" value="${r.product.unitPrice||0}"> €
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;min-width:70px;text-align:right;">${fmtMoney(r.value)}</span>
+            </div>
+          </div>`;
+        });
+        html += `</div>`;
+      });
+      html += `<div class="receipt" style="margin-top:20px;">
+        <div class="receipt-title">Valeur totale du stock</div>
+        <div class="receipt-line receipt-total"><span>Total</span><span class="val pos">${fmtMoney(summary.totalValue)}</span></div>
+      </div>`;
+    }
+    return html;
+  }
+
+  /* ---------- 🔔 : activer / désactiver l'alerte d'un produit (ex. emballages) ---------- */
+  document.body.addEventListener('click', async (e)=>{
+    const b = e.target && e.target.closest ? e.target.closest('.bell-stock') : null;
+    if(!b) return;
+    e.preventDefault();
+    const p = state.settings.products.find(x=>x.id===b.dataset.pid);
+    if(!p) return;
+    p.noAlert = !p.noAlert;
+    try{ await saveSettings(); }
+    catch(err){ p.noAlert = !p.noAlert; alert('Non enregistré : '+(err && err.message ? err.message : err)); return; }
+    showToast(p.noAlert ? '🔕 Alerte désactivée : '+p.name : '🔔 Alerte activée : '+p.name);
+    render();
+  });
+
+  /* ---------- Page Entrée/Sortie : les lignes créées par ✎ sont marquées « ajustement » ---------- */
+  async function renderStockLog(){
+    const sup = state.settings.suppliers.find(s=>s.id===state.stockLogSupplier);
+    const dir = state.stockLogDirection;
+    const dirLabel = dir==='entree' ? 'Entrée' : 'Sortie';
+    const d = state.selectedDate;
+    const mk = monthKeyOf(d);
+    const stockMonth = await getStock(sup.id, mk);
+    const products = state.settings.products.filter(p=>p.supplierId===sup.id);
+
+    let html = `<div class="crumb"><button id="backToLanding">‹ Stock</button><span class="sep">/</span><span class="current">${escapeHtml(sup.name)} · ${dirLabel}</span></div>`;
+
+    const productOptions = products.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    const pendingPhoto = state._stockPendingPhoto;
+    html += `
+      <div class="section-title"><span class="swatch" style="background:${dir==='entree'?'var(--teal)':'var(--red)'}"></span>Nouvelle ligne
+        <button class="cam-btn" id="camStockBtn" aria-label="Photographier un justificatif">${svgWrap('cam')}</button>
+      </div>
+      <div class="card">
+        ${pendingPhoto ? `<div class="field-row"><div class="photo-preview-wrap" style="width:100%;margin:8px 0 0;">
+          <img src="${pendingPhoto}" class="photo-thumb" style="max-height:140px;">
+          <button class="photo-remove-btn" id="removePendingPhoto">×</button>
+        </div></div>` : ''}
+        <div class="field-row"><span class="field-label">Date</span>
+          <div class="date-label-wrap" style="flex:0 0 auto;position:relative;">
+            <span id="logDateLabel" style="font-family:'IBM Plex Mono',monospace;font-size:13px;cursor:pointer;">${dateKey(d)}</span>
+            <input class="date-input-hidden" type="date" id="logDatePick" value="${dateKey(d)}">
+          </div>
+        </div>
+        <div class="field-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <span class="field-label">Produit</span>
+          <select class="field-select" id="logProduct">
+            <option value="">— Choisir —</option>
+            ${productOptions}
+            <option value="__new__">+ Nouveau produit…</option>
+          </select>
+          <input class="text-input" id="newProductName" placeholder="Nom du nouveau produit" style="display:none;">
+        </div>
+        <div class="field-row"><span class="field-label">Quantité</span>
+          <div class="field-input-wrap"><input class="field-input" type="number" step="1" id="logQty" placeholder="0"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="addMoveBtn">Ajouter la ligne</button>
+      <div class="save-confirm" id="logConfirm"></div>
+    `;
+
+    const moves = stockMonth[dir].slice().sort((a,b)=>b.day-a.day);
+    html += `<div class="section-title"><span class="swatch" style="background:var(--ink)"></span>${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>`;
+    if(moves.length===0){
+      html += `<div class="empty-state" style="padding:30px 20px;"><span class="big">📝</span>Aucune ligne ce mois-ci.</div>`;
+    } else {
+      html += `<div class="card">`;
+      moves.forEach((m,i)=>{
+        const p = state.settings.products.find(pp=>pp.id===m.productId);
+        html += `<div class="day-row" data-moveidx="${stockMonth[dir].indexOf(m)}">
+          <div class="day-left" style="display:flex;align-items:center;gap:8px;">
+            ${m.photo?`<img src="${m.photo}" class="photo-thumb-sm" data-viewphoto-move="${stockMonth[dir].indexOf(m)}">`:''}
+            <span>${pad(m.day)} <span class="dow">${MONTHS[d.getMonth()].slice(0,3)}</span> — ${escapeHtml(p?p.name:'?')}${m.src==='vue'?' <span style="font-size:10px;color:var(--amber);">ajustement</span>':''}</span>
+          </div>
+          <div class="day-nums"><span>${m.qty}</span><button class="move-remove" data-rm="${stockMonth[dir].indexOf(m)}">×</button></div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    return html;
   }boot();
 })();</script>
 <script>
