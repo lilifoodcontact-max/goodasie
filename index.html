@@ -3432,6 +3432,123 @@
       html += `</div>`;
     }
     return html;
+  }  /* ================= LILIFOOD — Bilan : comparaison du CA par source / stand ================= */
+
+  /* Totaux par source pour une liste de mois : { idSource : {ca, days} } (days = nb de jours avec du CA) */
+  function standSum(monthsData, sources){
+    const t = {};
+    sources.forEach(s=>{ t[s.id] = { ca:0, days:0 }; });
+    monthsData.forEach(m=>{
+      Object.values((m && m.days) || {}).forEach(day=>{
+        sources.forEach(s=>{
+          const a = Number((day.revenue||{})[s.id]||0);
+          if(a>0){ t[s.id].ca += a; t[s.id].days++; }
+        });
+      });
+    });
+    return t;
+  }
+  /* Lignes triées par CA décroissant, avec part du total, moyenne par jour et évolution */
+  function standRows(totals, prevTotals, sources){
+    const total = sources.reduce((s,x)=>s+totals[x.id].ca, 0);
+    const rows = sources.map(s=>{
+      const ca = totals[s.id].ca, days = totals[s.id].days;
+      const prev = prevTotals && prevTotals[s.id] ? prevTotals[s.id].ca : 0;
+      return { id:s.id, name:s.name, ca, days,
+        share: total>0 ? ca/total : 0,
+        avg: days>0 ? ca/days : 0,
+        delta: (prevTotals && prev>0) ? (ca-prev)/prev*100 : null };
+    }).sort((a,b)=>b.ca-a.ca);
+    const withDays = rows.filter(r=>r.days>0);
+    const bestAvg = withDays.length>1 ? withDays.reduce((a,b)=>b.avg>a.avg?b:a).id : null;
+    return { rows, total, bestAvg };
+  }
+
+  async function injectStands(){
+    const chart = document.querySelector('.chart-card');
+    if(!chart || state.tab!=='bilan') return;
+    let el = chart.nextElementSibling;
+    while(el && !el.classList.contains('receipt')) el = el.nextElementSibling;
+    const anchor = el || chart;
+    const box = document.createElement('div');
+    box.id = 'standsBox';
+    anchor.parentNode.insertBefore(box, anchor.nextSibling);
+
+    const y = state.bilanYear, now = new Date();
+    const sel = (state.bilanMonth!=null) ? state.bilanMonth : (y===now.getFullYear() ? now.getMonth() : 11);
+    const scope = state.standScope || 'month';
+    const sources = state.settings.revenueSources;
+
+    let months = [];
+    try{
+      for(let m=0;m<12;m++) months.push(await getMonth(y+'-'+pad(m+1)));
+    }catch(e){ box.innerHTML = '<div class="tax-note">Impossible de calculer la comparaison : '+escapeHtml(e.message||e)+'</div>'; return; }
+    if(!document.body.contains(box)) return;   /* la page a été redessinée entre-temps */
+
+    let totals, prevTotals = null, label;
+    if(scope==='year'){
+      totals = standSum(months, sources);
+      label = String(y);
+    } else {
+      totals = standSum([months[sel]], sources);
+      prevTotals = sel>0 ? standSum([months[sel-1]], sources) : null;
+      label = MONTHS[sel]+' '+y;
+    }
+    const { rows, total, bestAvg } = standRows(totals, prevTotals, sources);
+    const maxCa = Math.max(1, ...rows.map(r=>r.ca));
+
+    const tab = (id, text, on) => `<button class="btn ${on?'btn-primary':'btn-ghost'} btn-sm" id="${id}" style="flex:1;margin:0;">${text}</button>`;
+    let html = `<div class="section-title"><span class="swatch" style="background:var(--teal)"></span>CA par stand / source</div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        ${tab('standScopeMonth', 'Mois · '+escapeHtml(label.replace(/ \d{4}$/,'')), scope!=='year')}
+        ${tab('standScopeYear', 'Année '+y, scope==='year')}
+      </div>`;
+    if(total<=0){
+      html += `<div class="card"><div class="tax-note" style="padding:16px;text-align:center;">Aucun chiffre d’affaires enregistré pour ${escapeHtml(label)}.</div></div>`;
+    } else {
+      html += `<div class="card">` + rows.map((r,i)=>{
+        const last = i===rows.length-1;
+        const delta = (scope!=='year' && r.delta!==null)
+          ? `<span style="color:${r.delta>=0?'var(--teal)':'var(--red)'};">${r.delta>=0?'+':''}${r.delta.toFixed(0)} % vs ${MONTHS[sel-1].slice(0,3)}</span>` : '';
+        return `<div style="padding:12px 14px;${last?'':'border-bottom:1px solid var(--line);'}">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+            <span style="font-weight:600;font-size:13.5px;">${escapeHtml(r.name)}${r.id===bestAvg?' <span style="font-size:10px;font-weight:600;color:var(--amber);">★ meilleure moyenne/jour</span>':''}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13.5px;">${fmtMoney(r.ca)}</span>
+          </div>
+          <div style="height:8px;background:var(--teal-dim);border-radius:4px;margin:7px 0 5px;overflow:hidden;"><div style="height:100%;width:${Math.round(r.ca/maxCa*100)}%;background:var(--teal);border-radius:4px;"></div></div>
+          <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);">
+            <span>${fmtPct(r.share)} du CA · ${r.days} jour${r.days>1?'s':''}${r.days>0?' · moy. '+fmtMoney(r.avg)+'/jour':''}</span>${delta}
+          </div>
+        </div>`;
+      }).join('') + `</div>
+      <div class="receipt-line receipt-total" style="margin:12px 4px 0;"><span>Total</span><span class="val pos">${fmtMoney(total)}</span></div>`;
+    }
+    html += `<div class="tax-note">Chaque ligne = une source de revenu, comme saisie dans « Aujourd’hui ». Le nombre de jours = jours où cette source a du CA.</div>`;
+    box.innerHTML = html;
+
+    const rerender = async (scopeValue)=>{
+      const yPos = window.scrollY;
+      state.standScope = scopeValue;
+      await render();
+      window.scrollTo(0, yPos);
+    };
+    box.querySelector('#standScopeMonth').addEventListener('click', ()=>rerender('month'));
+    box.querySelector('#standScopeYear').addEventListener('click', ()=>rerender('year'));
+  }
+
+  function bindBilan(){
+    document.getElementById('yearPrev').addEventListener('click',()=>{ state.bilanYear--; state.bilanMonth=null; render(); });
+    document.getElementById('yearNext').addEventListener('click',()=>{ state.bilanYear++; state.bilanMonth=null; render(); });
+    document.getElementById('exportMonthBtn').addEventListener('click',()=>{ state._exporting=true; openExportFlow(); });
+    document.querySelectorAll('.bar-col[data-bm]').forEach(col=>{
+      col.addEventListener('click', async ()=>{
+        const yPos = window.scrollY;
+        state.bilanMonth = Number(col.dataset.bm);
+        await render();
+        window.scrollTo(0, yPos);
+      });
+    });
+    injectStands();
   }boot();
 })();</script>
 <script>
