@@ -3549,6 +3549,328 @@
       });
     });
     injectStands();
+  }  /* ================= LILIFOOD — Fiscal « standard » : exercice, HT/TVA, résultat (2033-B), IS ================= */
+
+  const FX_REV_LINES = [['214','Production vendue — biens (plats cuisinés)'],['210','Ventes de marchandises (revente en l’état)'],['218','Production vendue — services']];
+  const FX_CAT_LINES = [['238','Achats matières premières (238)'],['234','Achats de marchandises (234)'],['242','Autres charges externes (242)'],['244','Impôts et taxes (244)'],['262','Autres charges (262)'],['capex','Immobilisation (amortie)']];
+  const FX_DEFAULT_TREAT = { c1:{line:'242'}, c2:{line:'242'}, c3:{line:'242'}, c4:{line:'242'}, c5:{line:'242'}, c6:{line:'242'}, c7:{line:'capex',years:5}, c8:{line:'238'}, c9:{line:'242'} };
+
+  function fxNum(v){ const n = Number(String(v==null?'':v).replace(',','.')); return isFinite(n) ? n : 0; }
+  function fxHas(v){ return v!==undefined && v!==null && String(v).trim()!==''; }
+  function fxMonths(a, b){
+    const days = (Date.parse(b+'T00:00:00Z') - Date.parse(a+'T00:00:00Z'))/86400000 + 1;
+    return Math.max(1, Math.round(days/30.4375));
+  }
+  function fxPrevDay(iso){ const d = new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
+  function fxDaysBetween(a, b){ return (Date.parse(b+'T00:00:00Z') - Date.parse(a+'T00:00:00Z'))/86400000; }
+  function fxAddMonths(iso, n){
+    const p = iso.split('-').map(Number), y = p[0], m = p[1], d = p[2];
+    const isLast = d === new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const tm = m-1+n, ty = y+Math.floor(tm/12), tmm = ((tm%12)+12)%12;
+    const tl = new Date(Date.UTC(ty, tmm+1, 0)).getUTCDate();
+    const nd = isLast ? tl : Math.min(d, tl);
+    return ty+'-'+String(tmm+1).padStart(2,'0')+'-'+String(nd).padStart(2,'0');
+  }
+  /* amortissement linéaire, prorata temporis (jours/365) */
+  function fxAccum(ht, fromIso, toIso, years){
+    const days = fxDaysBetween(fromIso, toIso);
+    if(!(days>0) || !(years>0)) return 0;
+    return Math.min(ht, ht/years*days/365);
+  }
+  function fxTreat(f, cat){
+    const t = (f.catTreat && f.catTreat[cat.id]) || FX_DEFAULT_TREAT[cat.id] || { line:'242' };
+    return { line: t.line||'242', years: Number(t.years)>0 ? Number(t.years) : 5 };
+  }
+  /* IS : 15 % jusqu'au plafond (42 500 € × durée/12) si PME éligible, puis 25 % */
+  function fxIS(rf, months, pme, tax){
+    const seuil = Number(tax.isSeuil)||42500, r1 = Number(tax.isTauxReduit)||0.15, rn = Number(tax.isTauxNormal)||0.25;
+    const cap = pme ? seuil*months/12 : 0;
+    if(!(rf>0)) return { is:0, base15:0, baseNormal:0, cap:cap, r1:r1, rn:rn };
+    const b15 = Math.min(rf, cap), bn = rf - b15;
+    return { is: b15*r1 + bn*rn, base15:b15, baseNormal:bn, cap:cap, r1:r1, rn:rn };
+  }
+
+  function fxCompute(p){
+    const f = p.cfg, fy0 = p.fyStart, fy1 = p.fyEnd, months = fxMonths(fy0, fy1);
+    const inFy = iso => iso>=fy0 && iso<=fy1;
+    const L = {};
+    ['210','214','218','234','236','238','240','242','244','250','252','254','256','262'].forEach(k=>{ L[k]=0; });
+    const out = { months:months, rev:[], cats:[], capex:[], L:L };
+
+    let caTtc=0, caHt=0, tvaColl=0;
+    (p.sources||[]).forEach(s=>{
+      let ttc = 0; p.days.forEach(d=>{ if(inFy(d.iso)) ttc += Number((d.rev||{})[s.id]||0); });
+      const rate = fxHas((f.vatRev||{})[s.id]) ? Number(f.vatRev[s.id]) : 0.10;
+      const ht = ttc/(1+rate), tva = ttc-ht, line = (f.revLine||{})[s.id] || '214';
+      L[line] += ht; caTtc += ttc; caHt += ht; tvaColl += tva;
+      out.rev.push({ id:s.id, name:s.name, ttc:ttc, ht:ht, tva:tva, rate:rate, line:line });
+    });
+
+    let tvaDed=0, tvaImmo=0, expTtc=0;
+    (p.cats||[]).forEach(c=>{
+      const t = fxTreat(f, c), rate = Number(c.vatRate||0);
+      let ttc = 0; p.days.forEach(d=>{ if(inFy(d.iso)) ttc += Number((d.exp||{})[c.id]||0); });
+      const ht = ttc/(1+rate), tva = ttc-ht;
+      expTtc += ttc;
+      const row = { id:c.id, name:c.name, ttc:ttc, ht:ht, tva:tva, rate:rate, line:t.line, years:t.years };
+      if(t.line==='capex'){
+        let cost=0, buy=0, accEnd=0, accStart=0;
+        p.days.forEach(d=>{
+          const a = Number((d.exp||{})[c.id]||0);
+          if(!(a>0) || d.iso>fy1) return;
+          const h = a/(1+rate);
+          cost += h; if(d.iso>=fy0) buy += h;
+          accEnd += fxAccum(h, d.iso, fy1, t.years);
+          if(d.iso<fy0) accStart += fxAccum(h, d.iso, fxPrevDay(fy0), t.years);
+        });
+        row.cost=cost; row.buy=buy; row.acc=accEnd; row.dot=accEnd-accStart;
+        L['254'] += row.dot; tvaImmo += tva; out.capex.push(row);
+      } else {
+        L[t.line] += ht; tvaDed += tva;
+      }
+      out.cats.push(row);
+    });
+
+    let salAuto = 0;
+    p.days.forEach(d=>{ if(inFy(d.iso)) (d.att||[]).forEach(a=>{ salAuto += Number(a.rate||0); }); });
+    L['250'] = fxHas(f.salaries) ? fxNum(f.salaries) : salAuto;
+    L['252'] = fxNum(f.socialCharges);
+    L['244'] += fxNum(f.taxes);
+    const varLine = (L['238']>0 || L['234']<=0) ? '240' : '236';
+    L[varLine] = (p.stockStart||0) - (p.stockEnd||0);
+
+    const I  = L['210']+L['214']+L['218'];
+    const II = ['234','236','238','240','242','244','250','252','254','256','262'].reduce((s,k)=>s+L[k], 0);
+    const resExpl = I - II, exc = fxNum(f.exceptional), resBeforeIS = resExpl - exc;
+    const reint = fxNum(f.reint), ded = fxNum(f.deduct);
+    const rf = resBeforeIS + reint - ded;
+    const is = fxIS(rf, months, f.pme!==false, p.tax||{});
+    const t374 = fxHas(f.tvaCollDecl) ? fxNum(f.tvaCollDecl) : tvaColl;
+    const t378 = fxHas(f.tvaDedDecl)  ? fxNum(f.tvaDedDecl)  : tvaDed;
+    const annual = caHt*12/months;
+
+    return Object.assign(out, {
+      caTtc:caTtc, caHt:caHt, expTtc:expTtc, salAuto:salAuto, tvaColl:tvaColl, tvaDed:tvaDed, tvaImmo:tvaImmo,
+      t374:t374, t378:t378, tvaSolde: t374 - t378 - tvaImmo,
+      I:I, II:II, resExpl:resExpl, exc:exc, resBeforeIS:resBeforeIS, reint:reint, ded:ded, rf:rf, is:is,
+      resCompta: resBeforeIS - is.is, deficit: rf<0 ? -rf : 0,
+      annual:annual, cvaeDeclare: annual>152500, cvaePay: annual>500000,
+      cash: caTtc - expTtc - L['250']
+    });
+  }
+
+  /* ---------- Réglages fiscaux (mémorisés dans les réglages de l'app) ---------- */
+  function fxCfg(){
+    const s = state.settings;
+    if(!s.fiscal) s.fiscal = {};
+    const f = s.fiscal;
+    const y = new Date().getFullYear();
+    if(!f.fyStart) f.fyStart = y+'-01-01';
+    if(!f.fyEnd) f.fyEnd = y+'-12-31';
+    f.vatRev = f.vatRev || {};
+    f.revLine = f.revLine || {};
+    f.catTreat = f.catTreat || {};
+    if(f.pme===undefined) f.pme = true;
+    ['salaries','socialCharges','taxes','exceptional','reint','deduct','tvaCollDecl','tvaDedDecl'].forEach(k=>{ if(f[k]===undefined) f[k]=''; });
+    return f;
+  }
+
+  /* ---------- Chargement des données de l'exercice (+ 24 mois avant, pour les immobilisations) ---------- */
+  async function fxLoad(f){
+    const start = new Date(f.fyStart+'T00:00:00'), end = new Date(f.fyEnd+'T00:00:00');
+    const keys = [];
+    for(let d = new Date(start.getFullYear(), start.getMonth()-24, 1); d <= end; d = new Date(d.getFullYear(), d.getMonth()+1, 1)) keys.push(monthKeyOf(d));
+    const months = await Promise.all(keys.map(k=>getMonth(k)));
+    const days = [];
+    months.forEach((m,i)=>{
+      const ym = keys[i].split('-').map(Number);
+      Object.entries((m && m.days) || {}).forEach(([dd, day])=>{
+        days.push({ iso: ym[0]+'-'+pad(ym[1])+'-'+pad(Number(dd)), rev: day.revenue||{}, exp: day.expenses||{}, att: day.attendance||[] });
+      });
+    });
+    /* valeur du stock (HT, prix unitaire actuel) la veille du début et à la fin de l'exercice */
+    const cut0 = fxPrevDay(f.fyStart), cut1 = f.fyEnd, q0 = {}, q1 = {};
+    for(const sup of state.settings.suppliers){
+      const all = await getAllStockForSupplier(sup.id);
+      const add = (arr, sign)=>arr.forEach(m=>{
+        const di = m.mk+'-'+pad(m.day), q = sign*Number(m.qty||0);
+        if(di<=cut0) q0[m.productId] = (q0[m.productId]||0)+q;
+        if(di<=cut1) q1[m.productId] = (q1[m.productId]||0)+q;
+      });
+      add(all.entree, 1); add(all.sortie, -1);
+    }
+    let v0 = 0, v1 = 0;
+    state.settings.products.forEach(p=>{
+      const pr = Number(p.unitPrice||0);
+      v0 += Math.max(0, q0[p.id]||0)*pr; v1 += Math.max(0, q1[p.id]||0)*pr;
+    });
+    return { days:days, stockStart:v0, stockEnd:v1 };
+  }
+
+  /* ---------- Page Fiscal ---------- */
+  function fxE(n){ return (Math.round(Number(n)||0)).toLocaleString('fr-FR')+' €'; }
+  function fxFr(iso){ return new Date(iso+'T12:00:00').toLocaleDateString('fr-FR'); }
+
+  async function renderFiscal(){
+    const f = fxCfg();
+    const d = await fxLoad(f);
+    const c = fxCompute({ cfg:f, sources:state.settings.revenueSources, cats:state.settings.expenseCategories, tax:state.settings.tax,
+                          days:d.days, fyStart:f.fyStart, fyEnd:f.fyEnd, stockStart:d.stockStart, stockEnd:d.stockEnd });
+    const L = c.L, tax = state.settings.tax;
+    const ln = (code, label, val, bold)=>`<div class="receipt-line${bold?' receipt-total':''}"><span>${code?'<b style="color:var(--muted);font-weight:600;">'+code+'</b> ':''}${label}</span><span>${val}</span></div>`;
+    const rateOpts = v => [0,0.055,0.1,0.2].map(x=>`<option value="${x}" ${Math.abs(x-v)<1e-9?'selected':''}>${(x*100).toString().replace('.',',')} %</option>`).join('');
+    const sel = (opts, cur) => opts.map(o=>`<option value="${o[0]}" ${o[0]===cur?'selected':''}>${escapeHtml(o[1])}</option>`).join('');
+    const num = (key, label, hint)=>`<div class="field-row" style="flex-wrap:wrap;"><span class="field-label">${label}${hint?`<span style="display:block;font-size:10.5px;color:var(--muted);">${hint}</span>`:''}</span>
+      <div class="field-input-wrap"><input class="field-input decnum" type="text" inputmode="decimal" data-fxm="${key}" value="${escapeHtml(f[key])}" placeholder="auto"><span class="field-suffix">€</span></div></div>`;
+
+    const revRows = c.rev.map(r=>`<div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;"><span class="field-label">${escapeHtml(r.name)}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fxE(r.ht)} HT</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;">
+          <span style="color:var(--muted);">${fxE(r.ttc)} TTC · TVA</span>
+          <select class="field-select" style="width:auto;padding:5px 6px;font-size:12px;" data-fxvr="${r.id}">${rateOpts(r.rate)}</select>
+          <select class="field-select" style="width:auto;max-width:190px;padding:5px 6px;font-size:12px;" data-fxrl="${r.id}">${sel(FX_REV_LINES, r.line)}</select>
+        </div></div>`).join('');
+
+    const catRows = c.cats.map(r=>`<div class="field-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;"><span class="field-label">${escapeHtml(r.name)}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;">${fxE(r.ht)} HT</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;">
+          <span style="color:var(--muted);">${fxE(r.ttc)} TTC · TVA</span>
+          <input class="field-input decnum" style="width:50px;padding:5px 4px;font-size:12px;text-align:center;" type="text" inputmode="decimal" data-fxcr="${r.id}" value="${(r.rate*100).toFixed(1).replace('.0','')}"> %
+          <select class="field-select" style="width:auto;max-width:190px;padding:5px 6px;font-size:12px;" data-fxcl="${r.id}">${sel(FX_CAT_LINES, r.line)}</select>
+          ${r.line==='capex' ? `<span style="color:var(--muted);">sur</span><input class="field-input decnum" style="width:40px;padding:5px 4px;font-size:12px;text-align:center;" type="text" inputmode="decimal" data-fxcy="${r.id}" value="${r.years}"> ans` : ''}
+        </div></div>`).join('');
+
+    const capexInfo = c.capex.length ? `<div class="tax-note" style="padding:6px 2px 0;">Immobilisations : ${c.capex.map(r=>escapeHtml(r.name)+' — valeur '+fxE(r.cost)+', amortissement cumulé '+fxE(r.acc)+', dotation de l’exercice '+fxE(r.dot)).join(' · ')}.</div>` : '';
+
+    const taxRate = (tax.isTauxReduit||0.15)*100;
+    return `
+      <h1 class="page-title">🔔 Suivi fiscal</h1>
+      <div class="tax-note" style="padding:0 2px 10px;">Estimation à partir de vos saisies, présentée comme dans la liasse (régime simplifié, tableaux 2033). Ce n’est pas un calcul officiel : à vérifier avant toute déclaration.</div>
+
+      <div class="section-title" style="margin-top:6px;"><span class="swatch" style="background:var(--ink)"></span>Exercice</div>
+      <div class="card">
+        <div class="field-row"><span class="field-label">Du</span><input class="text-input" style="max-width:170px;" type="date" data-fxd="start" value="${f.fyStart}"></div>
+        <div class="field-row"><span class="field-label">Au</span><input class="text-input" style="max-width:170px;" type="date" data-fxd="end" value="${f.fyEnd}"></div>
+        <div class="field-row"><span class="field-label">Durée</span><span><b>${c.months}</b> mois</span></div>
+        <div class="field-row"><span class="field-label">Taux réduit PME (15 %)<span style="display:block;font-size:10.5px;color:var(--muted);">capital libéré, ≥ 75 % détenu par des personnes physiques, CA &lt; 10 M€</span></span><input type="checkbox" id="fxPme" ${f.pme!==false?'checked':''} style="width:20px;height:20px;accent-color:var(--teal);"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-ghost btn-sm" id="fxPrev" style="flex:1;">‹ Exercice précédent</button><button class="btn btn-ghost btn-sm" id="fxNext" style="flex:1;">Exercice suivant ›</button></div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>1. Chiffre d’affaires (saisi TTC → converti en HT)</div>
+      <div class="card">${revRows || '<div class="tax-note" style="padding:12px;">Aucune source de revenu.</div>'}</div>
+      <div class="receipt" style="margin-top:12px;">${ln('','CA HT',fxE(c.caHt))}${ln('374','TVA collectée',fxE(c.tvaColl),true)}</div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--red)"></span>2. Charges (saisies TTC → converties en HT)</div>
+      <div class="card">${catRows}</div>
+      ${capexInfo}
+      <div class="card" style="margin-top:12px;">
+        ${num('salaries','Salaires de l’exercice (250)','auto = présences × taux journalier ('+fxE(c.salAuto)+')')}
+        ${num('socialCharges','Charges sociales (252)','à reprendre des bulletins / DSN')}
+        ${num('taxes','Impôts et taxes (244)','CFE, taxes… hors IS')}
+        ${num('exceptional','Charges exceptionnelles (300)','')}
+      </div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--amber)"></span>3. Compte de résultat simplifié (2033-B)</div>
+      <div class="receipt" style="margin-top:0;">
+        <div class="receipt-title">${fxFr(f.fyStart)} → ${fxFr(f.fyEnd)}</div>
+        ${[['210','Ventes de marchandises'],['214','Production vendue — biens'],['218','Production vendue — services']].map(x=>L[x[0]]?ln(x[0],x[1],fxE(L[x[0]])):'').join('')}
+        ${ln('232','Total produits d’exploitation (I)',fxE(c.I),true)}
+        <hr class="receipt-divider">
+        ${[['234','Achats de marchandises'],['236','Variation de stock (marchandises)'],['238','Achats de matières premières'],['240','Variation de stock (matières premières)'],['242','Autres charges externes'],['244','Impôts, taxes et versements assimilés'],['250','Rémunérations du personnel'],['252','Charges sociales'],['254','Dotations aux amortissements'],['262','Autres charges']].map(x=>(Math.abs(L[x[0]])>=0.5)?ln(x[0],x[1],fxE(L[x[0]])):'').join('')}
+        ${ln('264','Total charges d’exploitation (II)',fxE(c.II),true)}
+        ${ln('270','Résultat d’exploitation (I − II)',fxE(c.resExpl),true)}
+        ${c.exc?ln('300','Charges exceptionnelles',fxE(c.exc)):''}
+        ${ln('306','Impôts sur les bénéfices (estimé)',fxE(c.is.is))}
+        <hr class="receipt-divider">
+        <div class="receipt-line receipt-total"><span><b style="color:var(--muted);font-weight:600;">310</b> Bénéfice ou perte comptable</span><span class="val ${c.resCompta>=0?'pos':'neg'}">${fxE(c.resCompta)}</span></div>
+      </div>
+      <div class="tax-note" style="padding:2px 2px 0;">La variation de stock = stock au début − stock à la fin, valorisé HT au prix unitaire actuel (début : ${fxE(d.stockStart)} · fin : ${fxE(d.stockEnd)}). Montants arrondis à l’euro.</div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>4. Résultat fiscal et IS</div>
+      <div class="card">
+        ${num('reint','Réintégrations diverses (330)','ex. indemnités kilométriques excédentaires, amendes')}
+        ${num('deduct','Déductions diverses','')}
+      </div>
+      <div class="receipt" style="margin-top:12px;">
+        ${ln('310','Résultat comptable',fxE(c.resCompta))}
+        ${ln('324','+ Impôt sur les sociétés (non déductible)',fxE(c.is.is))}
+        ${c.reint?ln('330','+ Divers à réintégrer',fxE(c.reint)):''}
+        ${c.ded?ln('','− Déductions',fxE(c.ded)):''}
+        <hr class="receipt-divider">
+        ${ln('352',c.rf>=0?'Résultat fiscal (bénéfice)':'Résultat fiscal (déficit)',fxE(Math.abs(c.rf)),true)}
+        ${c.rf>0?ln('','Dont imposé à '+taxRate+' % (plafond '+fxE(c.is.cap)+')',fxE(c.is.base15)):''}
+        ${c.rf>0?ln('','Dont imposé à '+((tax.isTauxNormal||0.25)*100)+' %',fxE(c.is.baseNormal)):''}
+        <div class="receipt-line receipt-total"><span>IS estimé</span><span class="val neg">${fxE(c.is.is)}</span></div>
+      </div>
+      <div class="tax-note" style="padding:2px 2px 0;">Le plafond de 42 500 € est ramené à la durée de l’exercice (${c.months} mois) : ${fxE(c.is.cap)}.</div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--teal)"></span>5. TVA (2033-D)</div>
+      <div class="card">
+        ${num('tvaCollDecl','TVA collectée déclarée (374)','auto = '+fxE(c.tvaColl)+' · à remplacer par le total de vos déclarations de TVA')}
+        ${num('tvaDedDecl','TVA déductible sur biens et services (378)','auto = '+fxE(c.tvaDed)+' · hors immobilisations')}
+      </div>
+      <div class="receipt" style="margin-top:12px;">
+        ${ln('374','TVA collectée',fxE(c.t374))}
+        ${ln('378','TVA déductible (biens et services)',fxE(c.t378))}
+        ${ln('','TVA déductible sur immobilisations',fxE(c.tvaImmo))}
+        <div class="receipt-line receipt-total"><span>${c.tvaSolde>=0?'TVA à payer (estimée)':'Crédit de TVA (estimé)'}</span><span class="val ${c.tvaSolde>=0?'neg':'pos'}">${fxE(Math.abs(c.tvaSolde))}</span></div>
+      </div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--red)"></span>6. CVAE et CFE</div>
+      <div class="${c.cvaePay?'flag-box flag-warn':(c.cvaeDeclare?'flag-box flag-warn':'flag-box flag-ok')}">${c.cvaePay?'⚠️ CA HT annualisé &gt; 500 000 € : CVAE à déclarer et à payer':(c.cvaeDeclare?'⚠️ CA HT annualisé &gt; 152 500 € : déclaration de valeur ajoutée obligatoire (pas de paiement)':'✅ CA HT annualisé '+fxE(c.annual)+' : sous 152 500 € (2033-E : cocher « Néant »)')}</div>
+      <div class="card" style="margin-top:10px;"><div class="field-row"><span class="field-label">CFE estimée (avis N-1)</span><div class="field-input-wrap"><input class="field-input" type="number" step="10" id="fxCfe" value="${tax.cfeAnnuelle||0}"><span class="field-suffix">€</span></div></div></div>
+
+      <div class="section-title"><span class="swatch" style="background:var(--ink)"></span>7. À provisionner</div>
+      <div class="receipt" style="margin-top:0;">
+        ${ln('','TVA à payer',fxE(Math.max(c.tvaSolde,0)))}
+        ${ln('','IS estimé',fxE(c.is.is))}
+        ${ln('','CFE',fxE(tax.cfeAnnuelle||0))}
+        <hr class="receipt-divider">
+        <div class="receipt-line receipt-total"><span>Total</span><span class="val neg">${fxE(Math.max(c.tvaSolde,0)+c.is.is+(Number(tax.cfeAnnuelle)||0))}</span></div>
+        <div class="receipt-line" style="margin-top:6px;"><span>Trésorerie d’exploitation (CA TTC − charges − salaires)</span><span>${fxE(c.cash)}</span></div>
+      </div>
+      <div class="${c.cash >= Math.max(c.tvaSolde,0)+c.is.is+(Number(tax.cfeAnnuelle)||0) ? 'flag-box flag-ok':'flag-box flag-warn'}">${c.cash >= Math.max(c.tvaSolde,0)+c.is.is+(Number(tax.cfeAnnuelle)||0) ? '✅ La trésorerie couvre les provisions estimées':'⚠️ Attention : la trésorerie pourrait ne pas suffire'}</div>
+    `;
+  }
+
+  function bindFiscal(){
+    const f = fxCfg();
+    const redo = async ()=>{
+      const y = window.scrollY;
+      try{ await saveSettings(); }catch(e){ alert('Non enregistré : '+(e && e.message ? e.message : e)); }
+      await render();
+      window.scrollTo(0, y);
+    };
+    const on = (sel, ev, fn)=>document.querySelectorAll(sel).forEach(el=>el.addEventListener(ev, ()=>fn(el)));
+    on('[data-fxd]', 'change', el=>{
+      if(!el.value) return;
+      if(el.dataset.fxd==='start') f.fyStart = el.value; else f.fyEnd = el.value;
+      if(f.fyEnd < f.fyStart){ if(el.dataset.fxd==='start') f.fyEnd = fxAddMonths(f.fyStart, 12); else f.fyStart = fxAddMonths(f.fyEnd, -12); }
+      redo();
+    });
+    const shift = n=>()=>{ f.fyStart = fxAddMonths(f.fyStart, n); f.fyEnd = fxAddMonths(f.fyEnd, n); redo(); };
+    const pv = document.getElementById('fxPrev'), nx = document.getElementById('fxNext');
+    if(pv) pv.addEventListener('click', shift(-12));
+    if(nx) nx.addEventListener('click', shift(12));
+    const pme = document.getElementById('fxPme');
+    if(pme) pme.addEventListener('change', ()=>{ f.pme = pme.checked; redo(); });
+    on('[data-fxvr]', 'change', el=>{ f.vatRev[el.dataset.fxvr] = Number(el.value); redo(); });
+    on('[data-fxrl]', 'change', el=>{ f.revLine[el.dataset.fxrl] = el.value; redo(); });
+    on('[data-fxcr]', 'change', el=>{
+      const cat = state.settings.expenseCategories.find(x=>x.id===el.dataset.fxcr);
+      if(cat){ cat.vatRate = Math.max(0, fxNum(el.value))/100; redo(); }
+    });
+    on('[data-fxcl]', 'change', el=>{
+      const id = el.dataset.fxcl, cur = f.catTreat[id] || FX_DEFAULT_TREAT[id] || {};
+      f.catTreat[id] = { line: el.value, years: cur.years || 5 }; redo();
+    });
+    on('[data-fxcy]', 'change', el=>{
+      const id = el.dataset.fxcy, cur = f.catTreat[id] || FX_DEFAULT_TREAT[id] || { line:'capex' };
+      f.catTreat[id] = { line: cur.line, years: Math.max(1, fxNum(el.value) || 5) }; redo();
+    });
+    on('[data-fxm]', 'change', el=>{ f[el.dataset.fxm] = el.value.trim(); redo(); });
+    const cfe = document.getElementById('fxCfe');
+    if(cfe) cfe.addEventListener('change', ()=>{ state.settings.tax.cfeAnnuelle = fxNum(cfe.value); redo(); });
   }boot();
 })();</script>
 <script>
