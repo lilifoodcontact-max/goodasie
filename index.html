@@ -3188,7 +3188,8 @@
     try{
       const d = state.selectedDate, mk = monthKeyOf(d), day = d.getDate();
       const sm = await getStock(supplier.id, mk);
-      let nStock = 0, notLearned = 0;
+            let nStock = 0, notLearned = 0;
+      const vatInfo = window.confirmInvoiceVat ? await window.confirmInvoiceVat(photo, out.amount) : null;
       out.lines.forEach(l=>{
         const key = supplier.id+'|'+normalizeName(l.name);
         if(l.pid==='__skip__'){ s.invoiceMap[key] = { pid:'__skip__' }; return; }
