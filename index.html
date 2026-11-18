@@ -4239,6 +4239,70 @@ setInterval(function(){
   if(!logged)done=false;
 },800);
 })();
+</script><script>
+/* ===== TVA de la facture : lecture + contrôle (appelé par le scan de facture) ===== */
+(function(){
+"use strict";
+var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+var eur=function(n){return (Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';};
+var num=function(v){var x=Number(String(v==null?'':v).replace(',','.'));return isFinite(x)?x:0;};
+var r2=function(n){return Math.round(n*100)/100;};
+
+window.confirmInvoiceVat=async function(photo,amount){
+  var m=/^data:([^;]+);base64,(.*)$/.exec(photo||'');
+  if(!m)return null;
+  var wait=document.createElement('div');wait.className='backdrop';wait.style.alignItems='center';
+  wait.innerHTML='<div class="card" style="padding:20px 24px;display:flex;align-items:center;gap:10px;"><span class="spinner"></span><span style="font-size:13.5px;">Lecture de la TVA…</span></div>';
+  document.body.appendChild(wait);
+  var d=null,err=null;
+  try{
+    var res=await fetch('/api/recognize-invoice-vat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:m[2],mimeType:m[1]})});
+    d=await res.json().catch(function(){return null;});
+    if(!res.ok){err=(d&&d.error)||('Erreur HTTP '+res.status);d=null;}
+  }catch(e){err=e.message||String(e);}
+  if(wait.parentNode)wait.parentNode.removeChild(wait);
+  var rows=(d&&d.vat?d.vat:[]).map(function(v){return {rate:String(v.rate==null?'':v.rate),base:v.base==null?'':String(v.base),tva:String(v.tva)};});
+  var total=num(amount);
+
+  return new Promise(function(resolve){
+    var back=document.createElement('div');back.className='backdrop';document.body.appendChild(back);
+    function sums(){var b=0,t=0;rows.forEach(function(r){b+=num(r.base);t+=num(r.tva);});return {b:r2(b),t:r2(t)};}
+    function check(){
+      var s=sums(),gap=r2(s.b+s.t-total);
+      if(!rows.length)return {ok:false,html:'<span style="color:var(--red);">Aucune TVA lue. L’estimation par catégorie sera utilisée.</span>'};
+      if(Math.abs(gap)<=0.05)return {ok:true,html:'<span style="color:var(--teal);">✓ HT '+eur(s.b)+' + TVA '+eur(s.t)+' = total TTC '+eur(total)+'</span>'};
+      return {ok:false,html:'<span style="color:var(--red);">⚠️ HT + TVA = '+eur(s.b+s.t)+' mais le total TTC est '+eur(total)+' (écart '+eur(gap)+'). Corrige un chiffre ou utilise l’estimation.</span>'};
+    }
+    function draw(){
+      back.innerHTML='<div class="sheet"><div class="sheet-head"><h2>TVA de la facture</h2><button class="icon-btn" data-x>✕</button></div>'
+        +(err?'<div class="tax-note" style="color:var(--red);">Lecture impossible : '+esc(err)+'. Tu peux saisir la TVA à la main ou utiliser l’estimation.</div>':'<div class="tax-note" style="padding:0 2px 8px;">Vérifie les montants lus sur la facture, un par taux de TVA.</div>')
+        +'<div class="card">'+(rows.length?rows.map(function(r,i){return '<div class="field-row" style="gap:6px;flex-wrap:wrap;">'
+          +'<input class="field-input" style="width:52px;" inputmode="decimal" data-f="rate" data-i="'+i+'" value="'+esc(r.rate)+'"> % '
+          +'<span style="font-size:11px;color:var(--muted);">HT</span><input class="field-input" style="width:80px;" inputmode="decimal" data-f="base" data-i="'+i+'" value="'+esc(r.base)+'">'
+          +'<span style="font-size:11px;color:var(--muted);">TVA</span><input class="field-input" style="width:72px;" inputmode="decimal" data-f="tva" data-i="'+i+'" value="'+esc(r.tva)+'">'
+          +'<button class="emp-remove" data-del="'+i+'">×</button></div>';}).join(''):'<div class="tax-note" style="padding:12px;">Aucune ligne de TVA.</div>')+'</div>'
+        +'<button class="btn btn-ghost btn-sm" data-add style="width:100%;margin-top:8px;">+ Ajouter un taux</button>'
+        +'<div class="tax-note" id="vatCheck" style="padding:10px 2px 0;font-style:normal;font-size:12px;"></div>'
+        +'<button class="btn btn-primary" data-save>Enregistrer la TVA</button>'
+        +'<button class="btn btn-ghost" data-skip style="width:100%;margin-top:10px;">Utiliser l’estimation (sans TVA lue)</button></div>';
+      back.querySelector('#vatCheck').innerHTML=check().html;
+      back.querySelector('[data-x]').onclick=back.querySelector('[data-skip]').onclick=function(){back.parentNode.removeChild(back);resolve(null);};
+      back.querySelectorAll('input[data-f]').forEach(function(el){el.oninput=function(){
+        rows[Number(el.dataset.i)][el.dataset.f]=el.value.replace(',','.');back.querySelector('#vatCheck').innerHTML=check().html;};});
+      back.querySelectorAll('[data-del]').forEach(function(el){el.onclick=function(){rows.splice(Number(el.dataset.del),1);draw();};});
+      back.querySelector('[data-add]').onclick=function(){rows.push({rate:'',base:'',tva:''});draw();};
+      back.querySelector('[data-save]').onclick=function(){
+        var c=check();
+        if(!rows.length){back.parentNode.removeChild(back);resolve(null);return;}
+        if(!c.ok&&!confirm('Les montants ne sont pas cohérents avec le total TTC. Enregistrer quand même ?'))return;
+        var vat=rows.map(function(r){return {rate:num(r.rate),base:r2(num(r.base)),tva:r2(num(r.tva))};});
+        back.parentNode.removeChild(back);resolve({vat:vat,ok:c.ok});
+      };
+    }
+    draw();
+  });
+};
+})();
 </script>
 </body>
 </html>
