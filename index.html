@@ -3872,6 +3872,71 @@
     on('[data-fxm]', 'change', el=>{ f[el.dataset.fxm] = el.value.trim(); redo(); });
     const cfe = document.getElementById('fxCfe');
     if(cfe) cfe.addEventListener('change', ()=>{ state.settings.tax.cfeAnnuelle = fxNum(cfe.value); redo(); });
+  }  /* ================= LILIFOOD — Scan facture : la TVA lue est enregistrée avec la facture ================= */
+  async function startInvoiceScanFlow(){
+    const photo = await capturePhoto();
+    if(!photo){ showToast('Aucune photo — rien enregistré'); return; }
+    const hide = showLoadingOverlay('Lecture de la facture par l’IA…');
+    let r;
+    try{ r = await recognizeInvoiceLines(photo); } finally{ hide(); }
+    const supplier = await resolveSupplierFromName(r.supplierName, r.error);
+    if(!supplier){ showToast('Annulé : aucun fournisseur choisi — rien enregistré'); return; }
+    const s = state.settings;
+    s.invoiceMap = s.invoiceMap || {};
+    const prods = s.products.filter(p=>p.supplierId===supplier.id);
+    const raw = Array.isArray(r.lines) ? r.lines : [];
+    const lines = raw.map(l=>{
+      const m = s.invoiceMap[supplier.id+'|'+normalizeName(l.name)];
+      const known = !!(m && (m.pid==='__skip__' || s.products.some(p=>p.id===m.pid)));
+      const pid = known ? m.pid : guessProduct(l.name, prods);
+      const p = s.products.find(x=>x.id===pid);
+      const cond = Number(l.cond)>0 ? Number(l.cond) : 0;
+      const box = (known && m.perBox) ? m.perBox : (cond || guessBox(l.name) || (p && p.perBox) || '');
+      return { name:l.name, qty:String(l.quantity), price:Number(l.unitPrice)||0, total:Number(l.total)||0,
+               pid, perBox:String(box), known, mode:(known && m.mode) ? m.mode : 'auto', manual:'' };
+    });
+    const out = await showInvoiceLinesSheet(photo, supplier, lines, r.amount);
+    if(!out){ showToast('Annulé — rien enregistré'); return; }
+    try{
+      const d = state.selectedDate, mk = monthKeyOf(d), day = d.getDate();
+      const sm = await getStock(supplier.id, mk);
+      let nStock = 0, notLearned = 0;
+      const vatInfo = window.confirmInvoiceVat ? await window.confirmInvoiceVat(photo, out.amount) : null;
+      out.lines.forEach(l=>{
+        const key = supplier.id+'|'+normalizeName(l.name);
+        if(l.pid==='__skip__'){ s.invoiceMap[key] = { pid:'__skip__' }; return; }
+        const p = s.products.find(x=>x.id===l.pid), box = invNum(l.perBox), qty = invNum(l.qty);
+        const per = invPer(l);
+        let mode = l.mode || 'auto';
+        if(invNum(l.manual)>0){
+          const lm = invLearnMode(l);
+          if(lm) mode = lm; else notLearned++;
+        }
+        p.perBox = box;
+        if(per>0) p.unitPrice = Math.round(per*10000)/10000;
+        s.invoiceMap[key] = { pid:p.id, perBox:box, mode:mode };
+        sm.entree.push({ day, productId:p.id, qty: Math.round(qty*box*10000)/10000 });
+        nStock++;
+      });
+      if(nStock) await saveStock(supplier.id, mk);
+      const cat = s.expenseCategories.find(c=>c.id==='c8') || s.expenseCategories.find(c=>c.linksSupplier);
+      if(out.amount>0 && cat){
+        const month = await getMonth(mk);
+        if(!month.days[String(day)]) month.days[String(day)] = emptyDay();
+        const dd = month.days[String(day)];
+        if(!dd.receipts) dd.receipts = [];
+        dd.expenses[cat.id] = Number(dd.expenses[cat.id]||0) + out.amount;
+        const rec = { id: uid('rc'), kind:'expense', amount: out.amount, catId: cat.id, supplierId: supplier.id, photo, ts: Date.now() };
+        if(vatInfo && vatInfo.vat && vatInfo.vat.length) rec.vat = vatInfo.vat;   /* TVA lue : [{rate, base, tva}] */
+        dd.receipts.push(rec);
+        await saveMonth(mk);
+      }
+      await saveSettings();
+      showToast('✓ '+nStock+' produit(s) en stock · prix mis à jour'+(out.amount>0?' · '+fmtMoney(out.amount)+' en Achats':'')+((vatInfo && vatInfo.vat && vatInfo.vat.length)?' · TVA enregistrée':'')+(notLearned?' · '+notLearned+' prix corrigé(s) non mémorisé(s)':''));
+      render();
+    }catch(e){
+      alert('Erreur pendant l’enregistrement : '+e.message+'\nVérifie le stock et les Achats avant de réessayer, une partie a pu être enregistrée.');
+    }
   }boot();
 })();</script>
 <script>
