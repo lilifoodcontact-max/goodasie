@@ -886,16 +886,19 @@
   }
 
   function findMatchingSupplier(name){
-    const n = normalizeName(name);
-    if(!n) return null;
-    let found = state.settings.suppliers.find(s=>normalizeName(s.name)===n);
-    if(found) return found;
-    found = state.settings.suppliers.find(s=>{
-      const sn = normalizeName(s.name);
-      return sn.length>=3 && (n.includes(sn) || sn.includes(n));
-    });
-    return found || null;
-  }
+  const n = normalizeName(name);
+  if(!n) return null;
+  const sups = state.settings.suppliers;
+  let found = sups.find(s=>normalizeName(s.name)===n);
+  if(found) return found;
+  const words = String(name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(Boolean);
+  found = sups.find(s=>words.includes(normalizeName(s.name)));   // "LX France" → 单词 lx
+  if(found) return found;
+  return sups.find(s=>{
+    const sn = normalizeName(s.name);
+    return (sn.length>=3 && (n.includes(sn)||sn.includes(n))) || (sn.length>=2 && n.startsWith(sn));
+  }) || null;
+}
 
   function showLoadingOverlay(msg){
     const back = document.createElement('div');
