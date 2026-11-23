@@ -213,7 +213,44 @@
     #printArea { display:block; position:absolute; top:0; left:0; width:100%; }
     @page { size:landscape; margin:10mm; }
   }
-</style>
+/* ================= VERSION ORDINATEUR (écran large uniquement) ================= */
+@media screen and (min-width: 900px) {
+  :root { --side: 230px; }
+
+  /* Cadre général : le contenu occupe toute la largeur à droite du menu */
+  #app { max-width: none; margin: 0; padding-left: var(--side); }
+  #app:has(.auth-wrap) { padding-left: 0; }   /* écran de connexion centré */
+  main { width: 100%; max-width: 1320px; margin: 0 auto; padding: 22px 36px 70px; column-count: 2; column-gap: 32px; }
+
+  /* Menu latéral à gauche (marque + réglages en haut, onglets dessous) */
+  .topbar { position: fixed; top: 0; left: 0; width: var(--side); height: 76px; box-sizing: border-box; padding: 0 16px; background: var(--bg); border-right: 1px solid var(--line); z-index: 25; }
+  nav.tabbar { top: 76px; bottom: 0; left: 0; right: auto; width: var(--side); display: block; background: var(--bg); backdrop-filter: none; border-top: none; border-right: 1px solid var(--line); }
+  .tabbar-inner { max-width: none; flex-direction: column; gap: 4px; padding: 14px 12px; }
+  .tab-btn { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px 14px; font-size: 14px; border-radius: 10px; }
+  .tab-btn svg { width: 20px; height: 20px; }
+  .tab-btn:hover { background: var(--teal-dim); }
+  .tab-btn.active { background: var(--teal-dim); }
+
+  /* Pages en deux colonnes ; les titres couvrent toute la largeur */
+  h1.page-title, .crumb, .date-row { column-span: all; }
+  .date-row { max-width: 560px; }
+  .card, .receipt, .kpi-row, .chart-card, .flag-box, .emp-card { break-inside: avoid; }
+  .section-title, .section-title-row, .receipt-title { break-after: avoid; }
+  .receipt { margin-bottom: 28px; }
+
+  /* Graphique et chiffres plus grands */
+  .bars { height: 190px; gap: 8px; }
+  .bar-m-label { font-size: 10.5px; }
+  .kpi-val { font-size: 20px; }
+  .kpi { padding: 16px; }
+
+  /* Fenêtres (réglages, export, facture…) : centrées au lieu de sortir du bas */
+  .backdrop { align-items: center !important; padding: 24px; box-sizing: border-box; }
+  .sheet { max-width: 680px; max-height: 90vh; border-radius: 20px; padding-bottom: 22px; }
+
+  /* Bouton Outils en bas à droite */
+  nav ~ button, body > button[style*="fixed"] { right: 28px !important; bottom: 28px !important; }
+}</style>
 </head>
 <body>
 <div id="app"></div>
