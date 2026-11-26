@@ -3977,7 +3977,49 @@
     }catch(e){
       alert('Erreur pendant l’enregistrement : '+e.message+'\nVérifie le stock et les Achats avant de réessayer, une partie a pu être enregistrée.');
     }
-  }boot();
+  }boot();/* ===== Fournisseurs : reconnaissance par mot + alias mémorisés ===== */
+  function supplierWords(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(Boolean); }
+
+  function findMatchingSupplier(name){
+    const n = normalizeName(name);
+    if(!n) return null;
+    const sups = state.settings.suppliers;
+    const al = state.settings.supplierAliases || {};
+    if(al[n]){ const a = sups.find(s=>s.id===al[n]); if(a) return a; }
+    let found = sups.find(s=>normalizeName(s.name)===n);
+    if(found) return found;
+    const ws = supplierWords(name);
+    found = sups.find(s=>{ const sn = normalizeName(s.name); return sn && ws.indexOf(sn)>=0; });
+    if(found) return found;
+    found = sups.find(s=>{ const sn = normalizeName(s.name); return sn.length>=3 && (n.includes(sn) || sn.includes(n)); });
+    return found || null;
+  }
+
+  async function resolveSupplierFromName(supplierName, errorMessage){
+    let sup = supplierName ? findMatchingSupplier(supplierName) : null;
+    if(sup) return sup;
+    const choice = await showNewSupplierSheet(supplierName, errorMessage);
+    if(!choice) return null;
+    if(choice.action==='create'){
+      sup = { id: uid('s'), name: choice.name };
+      const km = await showKmPromptSheet(choice.name);
+      if(km) sup.km = km;
+      state.settings.suppliers.push(sup);
+      await saveSettings();
+      return sup;
+    }
+    const supOptions = state.settings.suppliers.map(s=>({label:s.name, value:s.id}));
+    const pickedId = await showPickerSheet('Choisir le fournisseur', supOptions);
+    if(!pickedId) return null;
+    sup = state.settings.suppliers.find(s=>s.id===pickedId) || null;
+    const key = normalizeName(supplierName);
+    if(sup && key){
+      state.settings.supplierAliases = state.settings.supplierAliases || {};
+      state.settings.supplierAliases[key] = sup.id;
+      await saveSettings();
+    }
+    return sup;
+  }
 })();</script>
 <script>
 /* =====================================================================
