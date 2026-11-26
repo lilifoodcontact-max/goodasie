@@ -4451,6 +4451,34 @@ window.confirmInvoiceVat=async function(photo,amount){
   });
 };
 })();
+</script><script>
+/* ===== TVA en parallèle : lancée en même temps que la lecture des lignes ===== */
+(function(){
+"use strict";
+var f=window.fetch,pre={};
+function keyOf(body){
+  try{var j=JSON.parse(body);return j.image.length+':'+j.image.slice(0,64)+j.image.slice(-64);}catch(e){return null;}
+}
+window.fetch=function(u,o){
+  var url=String(u);
+  if(o&&typeof o.body==='string'){
+    if(url.indexOf('/api/recognize-invoice-lines')>=0){
+      var k=keyOf(o.body);
+      if(k&&!pre[k]){
+        pre[k]=f.call(window,'/api/recognize-invoice-vat',{method:'POST',headers:{'Content-Type':'application/json'},body:o.body});
+        pre[k].catch(function(){delete pre[k];});
+      }
+    }else if(url.indexOf('/api/recognize-invoice-vat')>=0){
+      var k2=keyOf(o.body);
+      if(k2&&pre[k2]){
+        var p=pre[k2];delete pre[k2];
+        return p.then(function(r){return r.ok?r.clone():f.call(window,u,o);},function(){return f.call(window,u,o);});
+      }
+    }
+  }
+  return f.apply(this,arguments);
+};
+})();
 </script>
 </body>
 </html>
